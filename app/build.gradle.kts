@@ -75,6 +75,7 @@ dependencies {
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.documentfile:documentfile:1.0.1")
 
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.22.0")
     implementation("org.tensorflow:tensorflow-lite:2.16.1")
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
     implementation("org.tensorflow:tensorflow-lite-gpu:2.16.1")

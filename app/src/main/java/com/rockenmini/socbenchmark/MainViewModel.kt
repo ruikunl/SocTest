@@ -11,7 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.rockenmini.socbenchmark.benchmark.BenchmarkPreset
 import com.rockenmini.socbenchmark.benchmark.ComputeBackend
-import com.rockenmini.socbenchmark.pose.MoveNetPoseDetector
+import com.rockenmini.socbenchmark.pose.RtmposeOnnxPoseDetector
 import com.rockenmini.socbenchmark.preview.BatchRecord
 import com.rockenmini.socbenchmark.preview.BatchSummary
 import com.rockenmini.socbenchmark.preview.DeviceInfo
@@ -40,7 +40,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     )
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
-    private val moveNetPoseDetector by lazy { MoveNetPoseDetector(application) }
+    private val rtmposeOnnxPoseDetector by lazy { RtmposeOnnxPoseDetector(application) }
     private val selfieSegmentationDetector by lazy { SelfieSegmentationDetector(application) }
     private var lastBatchTimestamp: String? = null
     private var lastBatchNamePrefix: String? = null
@@ -253,7 +253,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
-        moveNetPoseDetector.close()
+        rtmposeOnnxPoseDetector.close()
         selfieSegmentationDetector.close()
         super.onCleared()
     }
@@ -265,7 +265,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sourceCount: Int
     ): PreviewRenderResult {
         return when (preset) {
-            BenchmarkPreset.POSE -> moveNetPoseDetector.run(bitmap, backend, sourceCount)
+            BenchmarkPreset.POSE -> rtmposeOnnxPoseDetector.run(bitmap, backend, sourceCount)
             BenchmarkPreset.SEGMENTATION -> selfieSegmentationDetector.run(bitmap, backend, sourceCount)
             BenchmarkPreset.POINT_CLOUD -> PreviewPipeline.render(bitmap, preset, backend, sourceCount)
         }

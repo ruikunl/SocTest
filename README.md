@@ -2,11 +2,11 @@
 
 `SocTest` is an Android benchmark app for quickly evaluating whether a tablet or phone SoC can support offline vision workloads needed by a robotics project.
 
-The current focus is:
+This `onnx` branch focuses on:
 - human keypoint detection
 - person segmentation
 - cross-device timing comparison on different SoCs
-- CPU / GPU / NNAPI path validation on Android
+- ONNX Runtime CPU / NNAPI path validation on Android
 
 The app is intended for practical device-side testing on Qualcomm, MediaTek Dimensity, and MediaTek G-series platforms.
 
@@ -30,36 +30,42 @@ The app lets you:
 
 ## Current Models
 
-Current built-in models:
-- Human keypoints: `MoveNet Lightning` (`movenet_singlepose_lightning_f16.tflite`)
-- Person segmentation: `DeepLabV3` person-class path (`deeplabv3_person.tflite`)
+Current built-in models on this branch:
+- Human keypoints: `RTMPose-t` ONNX (`rtmpose_t_body7_256x192.onnx`)
+- Person segmentation: `MediaPipe Selfie Segmentation` ONNX
+  - `mediapipe_selfie_segmentation.onnx`
+  - `mediapipe_selfie.data`
 
 Notes:
-- The keypoint path is real TensorFlow Lite inference.
-- The segmentation path is real TensorFlow Lite inference, but the current model is a generic person-class segmentation model rather than a high-quality portrait matting model.
-- A MediaPipe selfie segmentation asset was explored earlier, but pure TFLite compatibility was prioritized for stable benchmarking.
+- The keypoint path is real ONNX Runtime inference.
+- The current keypoint path uses a benchmark-oriented top-down approximation:
+  the input image is center-cropped to the model aspect ratio and then resized.
+  This is suitable for current SoC validation where the subject is typically centered,
+  but it is not the final production algorithm pipeline.
+- The segmentation path is real ONNX Runtime inference with a lightweight selfie segmentation model.
+- The segmentation ONNX asset uses an external `.data` file, so the app extracts both model files to local storage before session creation.
 
 ## Backend Paths
 
-This project uses `TensorFlow Lite` as the inference runtime.
+This branch uses `ONNX Runtime` as the inference runtime.
 
 Current backend mapping:
-- `CPU`: standard TFLite interpreter
-- `GPU`: TFLite GPU delegate
-- `NPU / NNAPI`: TFLite NNAPI path
+- `CPU`: ONNX Runtime + `XNNPACK`
+- `GPU`: UI option is kept for comparison flow, but the baseline `onnxruntime-android` package used here does not bundle a generic Android GPU execution provider, so this path currently falls back to `XNNPACK CPU`
+- `NPU / NNAPI`: ONNX Runtime `NNAPI` execution provider request path
 
 Important:
-- `NNAPI` does not guarantee real NPU execution. Depending on device driver support and model op coverage, Android may partially accelerate or silently fall back to CPU.
-- GPU compatibility can vary by vendor, driver, and Android version.
+- `NNAPI` does not guarantee real NPU execution. Depending on device driver support, graph partitioning, and op coverage, Android may partially accelerate or silently fall back to CPU.
+- The current ORT baseline build is useful for `CPU vs NNAPI` validation, but it is not a general Android GPU benchmark path.
 
 ## Tech Stack
 
 - Android
 - Kotlin
 - Jetpack Compose
-- TensorFlow Lite
-- TFLite GPU delegate
-- NNAPI via TFLite
+- ONNX Runtime Android
+- XNNPACK via ONNX Runtime
+- NNAPI via ONNX Runtime
 
 ## Requirements
 
@@ -200,10 +206,10 @@ These summary rows are provided for:
 The app splits timing into separate stages:
 
 - `Preprocess`
-  Resize / tensor packing / input preparation.
+  Resize / crop or letterbox / tensor packing / input preparation.
 
 - `Inference`
-  Raw TFLite interpreter execution only.
+  Raw ONNX Runtime session execution only.
 
 - `Postprocess`
   Output tensor decoding before drawing.
@@ -219,8 +225,9 @@ Note:
 
 ## Current Limitations
 
-- `NNAPI` may fall back to CPU depending on the device.
-- The current segmentation model is not optimized for portrait-quality boundaries.
+- `GPU` currently falls back to CPU on this branch because no generic Android GPU EP is bundled in the baseline ORT package used here.
+- `NNAPI` may fall back to CPU or partition the graph depending on the device.
+- The current keypoint path assumes a centered person and does not yet include a detector.
 - The app is focused on image-based benchmarking for now.
 - Point cloud processing is still a preview / placeholder path rather than a full production point-cloud benchmark.
 
@@ -242,14 +249,22 @@ For each target device:
    - worst-case time
    - preprocess overhead
    - overlay cost
-   - whether GPU / NNAPI actually improve latency
+   - whether `NNAPI` actually improves latency
+   - how much the current `GPU` selection falls back compared with CPU
+
+## Branch Notes
+
+- `main` and `TFLite` branch:
+  TensorFlow Lite based implementation for CPU / GPU delegate / NNAPI experiments.
+- `onnx` branch:
+  ONNX Runtime based implementation intended to align more closely with a PyTorch to ONNX workflow.
 
 ## Repository Status
 
 This repository is an actively evolving benchmark tool intended for practical hardware evaluation, not yet a polished release product.
 
 Planned next steps may include:
-- better portrait segmentation models
+- better ONNX-native segmentation models
 - more robust NNAPI diagnostics
 - warmup / repeat count controls
 - richer point cloud benchmarks

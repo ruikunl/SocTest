@@ -6,15 +6,14 @@ enum class BenchmarkPreset(
 ) {
     SEGMENTATION(
         title = "Human Segmentation",
-        summary = "Prepare CPU/GPU/NNAPI timing for a lightweight body segmentation model."
+        summary = "Benchmark CPU / GPU(selection) / NNAPI paths for the current ONNX Runtime person segmentation model."
     ),
     POSE(
         title = "Human Keypoints",
-        summary = "Prepare CPU/GPU/NNAPI timing for a lightweight pose estimation model."
+        summary = "Benchmark CPU / GPU(selection) / NNAPI paths for the current ONNX Runtime human keypoint model."
     ),
     POINT_CLOUD(
         title = "Point Cloud CPU",
         summary = "Reserve a small CPU-only benchmark for point cloud preprocessing and geometry ops."
     )
 }
-

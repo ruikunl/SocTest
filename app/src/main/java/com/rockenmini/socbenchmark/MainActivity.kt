@@ -113,7 +113,7 @@ private fun BenchmarkScreen(
 
         SelectorCard(
             title = "Compute Backend",
-            description = "为后续真实推理预留 CPU / GPU / NPU(NNAPI) 三种运行模式。"
+            description = "当前 ONNX Runtime 版本支持 CPU 与 NNAPI 路径。GPU 选项会保留在界面中，但会明确提示是否回退到 CPU。"
         ) {
             ComputeBackend.entries.forEach { backend ->
                 FilterChip(
@@ -242,6 +242,10 @@ private fun BenchmarkScreen(
             ) {
                 Text("Runtime Info", style = MaterialTheme.typography.titleMedium)
                 Text(uiState.message, style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    text = "This branch uses ONNX Runtime. CPU runs through XNNPACK. NNAPI is a request path and may partially accelerate or fall back. GPU may fall back when no generic ORT Android GPU EP is bundled.",
+                    style = MaterialTheme.typography.bodySmall
+                )
                 uiState.metrics?.let { metrics ->
                     InfoLine("Backend", metrics.backendText)
                     InfoLine("Task", metrics.taskText)
