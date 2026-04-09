@@ -21,8 +21,9 @@ object PreviewPipeline {
     ): PreviewRenderResult {
         var resultBitmap: Bitmap? = null
         var preprocessMs = 0.0
-        var renderMs = 0.0
+        var inferenceMs = 0.0
         var postprocessMs = 0.0
+        var overlayRenderMs = 0.0
 
         val totalMs = measureNanoTime {
             preprocessMs = measureStepMs {
@@ -30,7 +31,10 @@ object PreviewPipeline {
                 source.copy(Bitmap.Config.ARGB_8888, false)
             }
 
-            renderMs = measureStepMs {
+            // Preview mode has no real model, so "inference" stays at zero.
+            inferenceMs = 0.0
+
+            overlayRenderMs = measureStepMs {
                 resultBitmap = when (preset) {
                     BenchmarkPreset.SEGMENTATION -> drawSegmentationPreview(source)
                     BenchmarkPreset.POSE -> drawPosePreview(source)
@@ -57,8 +61,9 @@ object PreviewPipeline {
             metrics = PreviewMetrics(
                 totalMs = totalMs.rounded(2),
                 preprocessMs = preprocessMs.rounded(2),
-                renderMs = renderMs.rounded(2),
+                inferenceMs = inferenceMs.rounded(2),
                 postprocessMs = postprocessMs.rounded(2),
+                overlayRenderMs = overlayRenderMs.rounded(2),
                 resolutionText = resolution,
                 backendText = backend.displayName,
                 taskText = preset.title,

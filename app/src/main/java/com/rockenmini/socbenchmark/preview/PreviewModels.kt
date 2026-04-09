@@ -15,8 +15,9 @@ enum class InputSourceMode(val title: String) {
 data class PreviewMetrics(
     val totalMs: Double,
     val preprocessMs: Double,
-    val renderMs: Double,
+    val inferenceMs: Double,
     val postprocessMs: Double,
+    val overlayRenderMs: Double,
     val resolutionText: String,
     val backendText: String,
     val taskText: String,
@@ -29,15 +30,24 @@ data class BatchRecord(
     val resolutionText: String,
     val totalMs: Double,
     val preprocessMs: Double,
-    val renderMs: Double,
-    val postprocessMs: Double
+    val inferenceMs: Double,
+    val postprocessMs: Double,
+    val overlayRenderMs: Double
+)
+
+data class MetricStats(
+    val averageMs: Double,
+    val minMs: Double,
+    val maxMs: Double
 )
 
 data class BatchSummary(
     val count: Int,
-    val averageMs: Double,
-    val minMs: Double,
-    val maxMs: Double
+    val total: MetricStats,
+    val preprocess: MetricStats,
+    val inference: MetricStats,
+    val postprocess: MetricStats,
+    val overlayRender: MetricStats
 )
 
 data class DeviceInfo(

@@ -32,6 +32,8 @@ class MoveNetPoseDetector(private val context: Context) : Closeable {
 
     suspend fun run(source: Bitmap, backend: ComputeBackend, sourceCount: Int): PreviewRenderResult =
         withContext(dispatcher) {
+            // Each backend keeps its own interpreter instance. This avoids paying model/delegate
+            // initialization cost on every image and makes repeated benchmark runs more stable.
             val session = sessions.getOrPut(backend) {
                 TfLiteBackends.createSession(
                     context = context,
@@ -50,12 +52,17 @@ class MoveNetPoseDetector(private val context: Context) : Closeable {
             var preprocessMs = 0.0
             var inferenceMs = 0.0
             var postprocessMs = 0.0
+            var overlayRenderMs = 0.0
 
             val totalMs = measureNanoTime {
+                // Preprocess only covers image resize here. It intentionally excludes model loading
+                // because interpreter creation is cached in the session above.
                 preprocessMs = measureStepMs {
                     resizedBitmap = source.scale(INPUT_SIZE, INPUT_SIZE, false)
                 }
 
+                // MoveNet Lightning expects a 192x192 RGB UINT8 tensor. Packing into a direct
+                // ByteBuffer keeps the Java side representation aligned with the TFLite input tensor.
                 val inputTensor = ByteBuffer.allocateDirect(INPUT_SIZE * INPUT_SIZE * 3).apply {
                     order(ByteOrder.nativeOrder())
                 }
@@ -70,24 +77,31 @@ class MoveNetPoseDetector(private val context: Context) : Closeable {
                 }
                 inputTensor.rewind()
 
+                // Inference time is only the interpreter invocation itself.
                 val outputTensor = Array(1) { Array(1) { Array(KEYPOINT_COUNT) { FloatArray(3) } } }
                 inferenceMs = measureStepMs {
                     session.interpreter.run(inputTensor, outputTensor)
                 }
 
+                // Postprocess here only extracts the raw keypoint tensor from the model output.
+                // Drawing the overlay is performed afterwards and is not mixed into postprocessMs.
                 postprocessMs = measureStepMs {
                     inferenceOutput = outputTensor[0]
                 }
             } / 1_000_000.0
 
-            val overlay = drawPose(source, checkNotNull(inferenceOutput), backend)
+            var overlay: Bitmap? = null
+            overlayRenderMs = measureStepMs {
+                overlay = drawPose(source, checkNotNull(inferenceOutput), backend)
+            }
             PreviewRenderResult(
-                bitmap = overlay,
+                bitmap = checkNotNull(overlay),
                 metrics = PreviewMetrics(
                     totalMs = totalMs.rounded(2),
                     preprocessMs = preprocessMs.rounded(2),
-                    renderMs = inferenceMs.rounded(2),
+                    inferenceMs = inferenceMs.rounded(2),
                     postprocessMs = postprocessMs.rounded(2),
+                    overlayRenderMs = overlayRenderMs.rounded(2),
                     resolutionText = "${source.width} x ${source.height}",
                     backendText = backend.displayName,
                     taskText = BenchmarkPreset.POSE.title,
@@ -102,6 +116,8 @@ class MoveNetPoseDetector(private val context: Context) : Closeable {
         keypointsWithScores: Array<Array<FloatArray>>,
         backend: ComputeBackend
     ): Bitmap {
+        // Rendering is deliberately kept outside inference timing so the displayed numbers reflect
+        // model-side cost rather than UI-side drawing cost.
         val result = source.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(result)
         val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -148,6 +164,8 @@ class MoveNetPoseDetector(private val context: Context) : Closeable {
     }
 
     override fun close() {
+        // GPU / NNAPI delegates are tied to interpreter lifecycle, so closing the cached sessions is
+        // the point where accelerator resources are actually released.
         sessions.values.forEach { it.close() }
         sessions.clear()
         dispatcher.close()
@@ -159,6 +177,7 @@ class MoveNetPoseDetector(private val context: Context) : Closeable {
     }
 
     companion object {
+        // This is the single-pose MoveNet Lightning model bundled in app assets.
         private const val MODEL_ASSET_NAME = "models/movenet_singlepose_lightning_f16.tflite"
         private const val INPUT_SIZE = 192
         private const val KEYPOINT_COUNT = 17

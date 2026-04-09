@@ -210,13 +210,6 @@ private fun BenchmarkScreen(
                     Text(if (uiState.isBusy) "Processing..." else "Run Benchmark")
                 }
 
-                OutlinedButton(
-                    onClick = viewModel::exportLatestResults,
-                    enabled = !uiState.isBusy && uiState.latestRecords.isNotEmpty(),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Export CSV")
-                }
             }
         }
 
@@ -256,8 +249,9 @@ private fun BenchmarkScreen(
                     InfoLine("Source Count", metrics.sourceCount.toString())
                     InfoLine("Total Time", "${metrics.totalMs} ms")
                     InfoLine("Preprocess", "${metrics.preprocessMs} ms")
-                    InfoLine("Render", "${metrics.renderMs} ms")
+                    InfoLine("Inference", "${metrics.inferenceMs} ms")
                     InfoLine("Postprocess", "${metrics.postprocessMs} ms")
+                    InfoLine("Overlay Render", "${metrics.overlayRenderMs} ms")
                     Text(
                         text = metrics.note,
                         style = MaterialTheme.typography.bodySmall
@@ -265,9 +259,21 @@ private fun BenchmarkScreen(
                 }
                 uiState.batchSummary?.let { summary ->
                     InfoLine("Batch Count", summary.count.toString())
-                    InfoLine("Average", "${summary.averageMs} ms")
-                    InfoLine("Min", "${summary.minMs} ms")
-                    InfoLine("Max", "${summary.maxMs} ms")
+                    InfoLine("Total Avg", "${summary.total.averageMs} ms")
+                    InfoLine("Total Min", "${summary.total.minMs} ms")
+                    InfoLine("Total Max", "${summary.total.maxMs} ms")
+                    InfoLine("Pre Avg", "${summary.preprocess.averageMs} ms")
+                    InfoLine("Pre Min", "${summary.preprocess.minMs} ms")
+                    InfoLine("Pre Max", "${summary.preprocess.maxMs} ms")
+                    InfoLine("Inf Avg", "${summary.inference.averageMs} ms")
+                    InfoLine("Inf Min", "${summary.inference.minMs} ms")
+                    InfoLine("Inf Max", "${summary.inference.maxMs} ms")
+                    InfoLine("Post Avg", "${summary.postprocess.averageMs} ms")
+                    InfoLine("Post Min", "${summary.postprocess.minMs} ms")
+                    InfoLine("Post Max", "${summary.postprocess.maxMs} ms")
+                    InfoLine("Overlay Avg", "${summary.overlayRender.averageMs} ms")
+                    InfoLine("Overlay Min", "${summary.overlayRender.minMs} ms")
+                    InfoLine("Overlay Max", "${summary.overlayRender.maxMs} ms")
                 }
                 uiState.exportFilePath?.let { path ->
                     Text(

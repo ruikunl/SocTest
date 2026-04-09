@@ -17,6 +17,7 @@ import com.rockenmini.socbenchmark.preview.BatchSummary
 import com.rockenmini.socbenchmark.preview.DeviceInfo
 import com.rockenmini.socbenchmark.preview.InputSourceMode
 import com.rockenmini.socbenchmark.preview.MainUiState
+import com.rockenmini.socbenchmark.preview.MetricStats
 import com.rockenmini.socbenchmark.preview.PreviewPipeline
 import com.rockenmini.socbenchmark.preview.PreviewRenderResult
 import com.rockenmini.socbenchmark.preview.SourceSelection
@@ -43,6 +44,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val selfieSegmentationDetector by lazy { SelfieSegmentationDetector(application) }
     private var lastBatchTimestamp: String? = null
     private var lastBatchNamePrefix: String? = null
+    private var lastBatchDirPath: String? = null
 
     fun selectPreset(preset: BenchmarkPreset) {
         _uiState.value = _uiState.value.copy(selectedPreset = preset)
@@ -170,14 +172,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val renderDir = createRenderedImageDir(batchNamePrefix, batchTimestamp)
                 lastBatchTimestamp = batchTimestamp
                 lastBatchNamePrefix = batchNamePrefix
+                lastBatchDirPath = renderDir.absolutePath
 
                 source.imageUris.forEachIndexed { index, uri ->
+                    // The first file reuses the preview bitmap already decoded during file selection.
+                    // Later files are decoded lazily here so batch mode does not pre-load the whole folder.
                     val bitmap = if (index == 0) {
                         source.previewBitmap
                     } else {
                         decodeBitmap(uri)
                     } ?: return@forEachIndexed
 
+                    // The detector itself returns both the rendered bitmap and the timing breakdown
+                    // for preprocess / inference / postprocess.
                     val renderResult = runBenchmarkForBitmap(
                         bitmap = bitmap,
                         preset = current.selectedPreset,
@@ -203,14 +210,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         resolutionText = metrics.resolutionText,
                         totalMs = metrics.totalMs,
                         preprocessMs = metrics.preprocessMs,
-                        renderMs = metrics.renderMs,
-                        postprocessMs = metrics.postprocessMs
+                        inferenceMs = metrics.inferenceMs,
+                        postprocessMs = metrics.postprocessMs,
+                        overlayRenderMs = metrics.overlayRenderMs
                     )
                 }
 
                 val summary = buildBatchSummary(records)
                 val first = checkNotNull(firstRender)
-                BatchExecutionResult(first, records, summary, renderDir.absolutePath)
+                val exportPath = exportResults(
+                    selectedPreset = current.selectedPreset,
+                    selectedBackend = current.selectedBackend,
+                    selectedInputMode = current.selectedInputMode,
+                    device = current.deviceInfo,
+                    records = records,
+                    summary = summary,
+                    outputDirPath = renderDir.absolutePath
+                )
+                BatchExecutionResult(first, records, summary, renderDir.absolutePath, exportPath)
             }.onSuccess { result ->
                 _uiState.value = _uiState.value.copy(
                     isBusy = false,
@@ -218,96 +235,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     metrics = result.firstRender.metrics.copy(sourceCount = result.records.size),
                     batchSummary = result.summary,
                     latestRecords = result.records,
+                    exportFilePath = result.exportFilePath,
                     renderedImageDirPath = result.renderedImageDirPath,
                     message = if (result.records.size > 1) {
-                        "Batch benchmark complete. ${result.records.size} images processed."
+                        "Batch benchmark complete. ${result.records.size} images processed and CSV exported."
                     } else {
-                        "Single image benchmark complete."
+                        "Single image benchmark complete and CSV exported."
                     }
                 )
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
                     isBusy = false,
                     message = error.message ?: "Benchmark failed."
-                )
-            }
-        }
-    }
-
-    fun exportLatestResults() {
-        val current = _uiState.value
-        if (current.latestRecords.isEmpty()) {
-            _uiState.value = current.copy(message = "No benchmark results available to export.")
-            return
-        }
-
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching {
-                val exportDir = File(
-                    getApplication<Application>().getExternalFilesDir("exports"),
-                    ""
-                ).apply { mkdirs() }
-                val timestamp = lastBatchTimestamp ?: buildBatchTimestamp()
-                val filePrefix = lastBatchNamePrefix ?: buildBatchNamePrefix(
-                    preset = current.selectedPreset,
-                    backend = current.selectedBackend
-                )
-                val file = File(exportDir, "${filePrefix}_${timestamp}.csv")
-                val summary = current.batchSummary
-                val device = current.deviceInfo
-
-                buildString {
-                    appendLine("device_key,device_value")
-                    appendLine("manufacturer,${csvCell(device.manufacturer)}")
-                    appendLine("brand,${csvCell(device.brand)}")
-                    appendLine("model,${csvCell(device.model)}")
-                    appendLine("device,${csvCell(device.device)}")
-                    appendLine("product,${csvCell(device.product)}")
-                    appendLine("hardware,${csvCell(device.hardware)}")
-                    appendLine("board,${csvCell(device.board)}")
-                    appendLine("android_version,${csvCell(device.androidVersion)}")
-                    appendLine("sdk_int,${device.sdkInt}")
-                    appendLine("soc_manufacturer,${csvCell(device.socManufacturer)}")
-                    appendLine("soc_model,${csvCell(device.socModel)}")
-                    appendLine()
-                    appendLine("task,backend,input_mode,source_count,avg_ms,min_ms,max_ms")
-                    appendLine(
-                        listOf(
-                            csvCell(current.selectedPreset.title),
-                            csvCell(current.selectedBackend.displayName),
-                            csvCell(current.selectedInputMode.title),
-                            current.latestRecords.size.toString(),
-                            summary?.averageMs?.toString().orEmpty(),
-                            summary?.minMs?.toString().orEmpty(),
-                            summary?.maxMs?.toString().orEmpty()
-                        ).joinToString(",")
-                    )
-                    appendLine()
-                    appendLine("file_name,resolution,total_ms,preprocess_ms,inference_ms,postprocess_ms")
-                    current.latestRecords.forEach { record ->
-                        appendLine(
-                            listOf(
-                                csvCell(record.fileName),
-                                csvCell(record.resolutionText),
-                                record.totalMs.toString(),
-                                record.preprocessMs.toString(),
-                                record.renderMs.toString(),
-                                record.postprocessMs.toString()
-                            ).joinToString(",")
-                        )
-                    }
-                }.also { content ->
-                    file.writeText(content)
-                }
-                file.absolutePath
-            }.onSuccess { path ->
-                _uiState.value = _uiState.value.copy(
-                    exportFilePath = path,
-                    message = "Results exported successfully."
-                )
-            }.onFailure { error ->
-                _uiState.value = _uiState.value.copy(
-                    message = error.message ?: "Failed to export results."
                 )
             }
         }
@@ -333,13 +272,116 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun buildBatchSummary(records: List<BatchRecord>): BatchSummary {
-        val totals = records.map { it.totalMs }
         return BatchSummary(
             count = records.size,
-            averageMs = totals.average().rounded(2),
-            minMs = (totals.minOrNull() ?: 0.0).rounded(2),
-            maxMs = (totals.maxOrNull() ?: 0.0).rounded(2)
+            total = buildMetricStats(records.map { it.totalMs }),
+            preprocess = buildMetricStats(records.map { it.preprocessMs }),
+            inference = buildMetricStats(records.map { it.inferenceMs }),
+            postprocess = buildMetricStats(records.map { it.postprocessMs }),
+            overlayRender = buildMetricStats(records.map { it.overlayRenderMs })
         )
+    }
+
+    private fun buildMetricStats(values: List<Double>): MetricStats {
+        return MetricStats(
+            averageMs = values.average().rounded(2),
+            minMs = (values.minOrNull() ?: 0.0).rounded(2),
+            maxMs = (values.maxOrNull() ?: 0.0).rounded(2)
+        )
+    }
+
+    private fun exportResults(
+        selectedPreset: BenchmarkPreset,
+        selectedBackend: ComputeBackend,
+        selectedInputMode: InputSourceMode,
+        device: DeviceInfo,
+        records: List<BatchRecord>,
+        summary: BatchSummary,
+        outputDirPath: String
+    ): String {
+        val timestamp = lastBatchTimestamp ?: buildBatchTimestamp()
+        val filePrefix = lastBatchNamePrefix ?: buildBatchNamePrefix(
+            preset = selectedPreset,
+            backend = selectedBackend
+        )
+        val exportDir = File(outputDirPath).apply { mkdirs() }
+        val file = File(exportDir, "${filePrefix}_${timestamp}.csv")
+
+        buildString {
+            appendLine("device_key,device_value")
+            appendLine("manufacturer,${csvCell(device.manufacturer)}")
+            appendLine("brand,${csvCell(device.brand)}")
+            appendLine("model,${csvCell(device.model)}")
+            appendLine("device,${csvCell(device.device)}")
+            appendLine("product,${csvCell(device.product)}")
+            appendLine("hardware,${csvCell(device.hardware)}")
+            appendLine("board,${csvCell(device.board)}")
+            appendLine("android_version,${csvCell(device.androidVersion)}")
+            appendLine("sdk_int,${device.sdkInt}")
+            appendLine("soc_manufacturer,${csvCell(device.socManufacturer)}")
+            appendLine("soc_model,${csvCell(device.socModel)}")
+            appendLine()
+            appendLine("task,backend,input_mode,source_count")
+            appendLine(
+                listOf(
+                    csvCell(selectedPreset.title),
+                    csvCell(selectedBackend.displayName),
+                    csvCell(selectedInputMode.title),
+                    records.size.toString()
+                ).joinToString(",")
+            )
+            appendLine()
+            appendLine("file_name,resolution,total_ms,preprocess_ms,inference_ms,postprocess_ms,overlay_render_ms")
+            records.forEach { record ->
+                appendLine(
+                    listOf(
+                        csvCell(record.fileName),
+                        csvCell(record.resolutionText),
+                        record.totalMs.toString(),
+                        record.preprocessMs.toString(),
+                        record.inferenceMs.toString(),
+                        record.postprocessMs.toString(),
+                        record.overlayRenderMs.toString()
+                    ).joinToString(",")
+                )
+            }
+            appendLine()
+            appendLine("summary_type,total_ms,preprocess_ms,inference_ms,postprocess_ms,overlay_render_ms")
+            appendLine(
+                listOf(
+                    "avg",
+                    summary.total.averageMs.toString(),
+                    summary.preprocess.averageMs.toString(),
+                    summary.inference.averageMs.toString(),
+                    summary.postprocess.averageMs.toString(),
+                    summary.overlayRender.averageMs.toString()
+                ).joinToString(",")
+            )
+            appendLine(
+                listOf(
+                    "max",
+                    summary.total.maxMs.toString(),
+                    summary.preprocess.maxMs.toString(),
+                    summary.inference.maxMs.toString(),
+                    summary.postprocess.maxMs.toString(),
+                    summary.overlayRender.maxMs.toString()
+                ).joinToString(",")
+            )
+            appendLine(
+                listOf(
+                    "min",
+                    summary.total.minMs.toString(),
+                    summary.preprocess.minMs.toString(),
+                    summary.inference.minMs.toString(),
+                    summary.postprocess.minMs.toString(),
+                    summary.overlayRender.minMs.toString()
+                ).joinToString(",")
+            )
+        }.also { content ->
+            file.writeText(content)
+        }
+
+        return file.absolutePath
     }
 
     private fun decodeBitmap(uri: Uri): Bitmap? {
@@ -446,7 +488,8 @@ private data class BatchExecutionResult(
     val firstRender: PreviewRenderResult,
     val records: List<BatchRecord>,
     val summary: BatchSummary,
-    val renderedImageDirPath: String
+    val renderedImageDirPath: String,
+    val exportFilePath: String
 )
 
 private fun Double.rounded(scale: Int): Double {

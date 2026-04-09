@@ -33,6 +33,8 @@ class SelfieSegmentationDetector(private val context: Context) : Closeable {
 
     suspend fun run(source: Bitmap, backend: ComputeBackend, sourceCount: Int): PreviewRenderResult =
         withContext(dispatcher) {
+            // Just like pose, we cache one interpreter per backend so per-image timing measures
+            // preprocess/inference/postprocess rather than repeated model initialization.
             val session = sessions.getOrPut(backend) {
                 TfLiteBackends.createSession(
                     context = context,
@@ -60,36 +62,50 @@ class SelfieSegmentationDetector(private val context: Context) : Closeable {
             var preprocessMs = 0.0
             var inferenceMs = 0.0
             var postprocessMs = 0.0
+            var overlayRenderMs = 0.0
 
             val totalMs = measureNanoTime {
+                // Segmentation preprocess includes resize plus packing into the tensor's expected
+                // numeric format. The model input type is read from the tensor so this path stays
+                // valid if we later swap in another TFLite segmentation model.
                 preprocessMs = measureStepMs {
                     val resizedBitmap = source.scale(inputWidth, inputHeight, false)
                     inputBuffer = bitmapToInputBuffer(resizedBitmap, inputType)
                 }
 
                 val outputBuffer = createOutputBuffer(outputShape, outputType)
+                // Inference time is only the raw TFLite execution.
                 inferenceMs = measureStepMs {
                     session.interpreter.run(checkNotNull(inputBuffer), outputBuffer)
                 }
 
+                // Postprocess covers decoding the raw segmentation output into a displayable mask.
                 postprocessMs = measureStepMs {
-                    maskBitmap = buildOverlayBitmap(
-                        source = source,
+                    maskBitmap = buildMaskBitmap(
                         output = outputBuffer,
                         outputShape = outputShape,
-                        outputType = outputType,
-                        backend = backend
+                        outputType = outputType
                     )
                 }
             } / 1_000_000.0
 
+            var overlay: Bitmap? = null
+            overlayRenderMs = measureStepMs {
+                overlay = buildOverlayBitmap(
+                    source = source,
+                    maskBitmap = checkNotNull(maskBitmap),
+                    backend = backend
+                )
+            }
+
             PreviewRenderResult(
-                bitmap = checkNotNull(maskBitmap),
+                bitmap = checkNotNull(overlay),
                 metrics = PreviewMetrics(
                     totalMs = totalMs.rounded(2),
                     preprocessMs = preprocessMs.rounded(2),
-                    renderMs = inferenceMs.rounded(2),
+                    inferenceMs = inferenceMs.rounded(2),
                     postprocessMs = postprocessMs.rounded(2),
+                    overlayRenderMs = overlayRenderMs.rounded(2),
                     resolutionText = "${source.width} x ${source.height}",
                     backendText = backend.displayName,
                     taskText = BenchmarkPreset.SEGMENTATION.title,
@@ -100,6 +116,8 @@ class SelfieSegmentationDetector(private val context: Context) : Closeable {
         }
 
     private fun bitmapToInputBuffer(bitmap: Bitmap, dataType: DataType): ByteBuffer {
+        // Some models accept UINT8 and others FLOAT32. We convert according to the tensor metadata
+        // instead of hard-coding one format, which makes benchmarking model swaps safer.
         val bytesPerChannel = if (dataType == DataType.FLOAT32) 4 else 1
         val buffer = ByteBuffer.allocateDirect(bitmap.width * bitmap.height * 3 * bytesPerChannel)
         buffer.order(ByteOrder.nativeOrder())
@@ -128,6 +146,8 @@ class SelfieSegmentationDetector(private val context: Context) : Closeable {
     }
 
     private fun createOutputBuffer(outputShape: IntArray, dataType: DataType): Any {
+        // Output rank and channel count can differ between segmentation models, so we allocate
+        // against the tensor shape reported by the interpreter rather than assuming fixed dims.
         val height = outputShape[1]
         val width = outputShape[2]
         val channels = outputShape.getOrElse(3) { 1 }
@@ -138,12 +158,10 @@ class SelfieSegmentationDetector(private val context: Context) : Closeable {
         }
     }
 
-    private fun buildOverlayBitmap(
-        source: Bitmap,
+    private fun buildMaskBitmap(
         output: Any,
         outputShape: IntArray,
-        outputType: DataType,
-        backend: ComputeBackend
+        outputType: DataType
     ): Bitmap {
         val maskHeight = outputShape[1]
         val maskWidth = outputShape[2]
@@ -169,6 +187,16 @@ class SelfieSegmentationDetector(private val context: Context) : Closeable {
             }
         }
 
+        return maskBitmap
+    }
+
+    private fun buildOverlayBitmap(
+        source: Bitmap,
+        maskBitmap: Bitmap,
+        backend: ComputeBackend
+    ): Bitmap {
+        // Rendering the colored mask on top of the source image is tracked separately so it does
+        // not get mixed into model postprocess time.
         val overlay = source.copy(Bitmap.Config.ARGB_8888, true)
         val canvas = Canvas(overlay)
         val scaledMask = maskBitmap.scale(source.width, source.height, true)
@@ -184,6 +212,8 @@ class SelfieSegmentationDetector(private val context: Context) : Closeable {
     }
 
     private fun confidenceFromChannels(channels: FloatArray): Float {
+        // For multi-class output we approximate "personness" by comparing the person class against
+        // background. This keeps the benchmark pipeline simple while still giving a usable overlay.
         return when {
             channels.isEmpty() -> 0f
             channels.size == 1 -> channels[0].coerceIn(0f, 1f)
@@ -219,6 +249,8 @@ class SelfieSegmentationDetector(private val context: Context) : Closeable {
     }
 
     companion object {
+        // The current segmentation path uses a plain TFLite DeepLabV3 asset because it runs on the
+        // stock interpreter without MediaPipe custom ops.
         private const val MODEL_ASSET_NAME = "models/deeplabv3_person.tflite"
         private const val PERSON_CLASS_INDEX = 15
     }

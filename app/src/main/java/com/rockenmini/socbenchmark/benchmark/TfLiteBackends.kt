@@ -24,6 +24,7 @@ object TfLiteBackends {
         modelAssetPath: String,
         config: BenchmarkConfig
     ): TfLiteSession {
+        // Models are loaded as memory-mapped files so startup stays cheap even for larger assets.
         val model = FileUtil.loadMappedFile(context, modelAssetPath)
         val options = Interpreter.Options().apply {
             setNumThreads(config.threads)
@@ -40,6 +41,8 @@ object TfLiteBackends {
             }
 
             ComputeBackend.GPU -> {
+                // The GPU delegate is attached directly to the interpreter. Session caching keeps the
+                // delegate alive across repeated runs so benchmark numbers do not include re-init cost.
                 val delegate = GpuDelegate()
                 options.addDelegate(delegate)
                 TfLiteSession(
@@ -50,6 +53,8 @@ object TfLiteBackends {
             }
 
             ComputeBackend.NNAPI -> {
+                // NNAPI is only a request path. The actual device may execute on NPU, DSP, GPU,
+                // or silently fall back to CPU depending on driver and op coverage.
                 options.setUseNNAPI(true)
                 TfLiteSession(
                     interpreter = Interpreter(model, options),
