@@ -76,7 +76,7 @@ Important:
 
 ## Build
 
-From the project root:
+From the SocTest repository root:
 
 ```bash
 ./gradlew :app:assembleDebug
