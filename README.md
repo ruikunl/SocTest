@@ -1,58 +1,64 @@
 # SocTest
 
-`SocTest` is an Android benchmark app for quickly evaluating whether a tablet or phone SoC can support offline vision workloads needed by a robotics project.
+`SocTest` 是一个 Android 端 SoC benchmark 应用，用来快速评估平板或手机芯片是否能支撑按摩机器人项目需要的离线视觉任务。
 
-The current focus is:
-- human keypoint detection
-- person segmentation
-- cross-device timing comparison on different SoCs
-- CPU / GPU / NNAPI path validation on Android
+当前 `main` 分支重点验证：
 
-The app is intended for practical device-side testing on Qualcomm, MediaTek Dimensity, and MediaTek G-series platforms.
+- 人体关键点检测
+- 人体分割
+- 不同 SoC 之间的耗时对比
+- Android 上 TensorFlow Lite 的 CPU / GPU / NNAPI 路径
 
-## What It Does
+这个应用主要用于在 Qualcomm、MediaTek Dimensity、MediaTek G 系列等平台上做真实设备测试。
 
-The app lets you:
-- choose a backend: `CPU`, `GPU`, or `NPU / NNAPI`
-- choose a task preset
-- select a single image or a whole image folder
-- run inference on one image or batch-process a folder
-- visualize the rendered result image
-- record timing breakdowns for:
-  - preprocess
-  - inference
-  - postprocess
-  - overlay render
-  - total
-- export batch results as CSV
-- save rendered result images for every input
-- include device and SoC metadata in exported results
+## 功能
 
-## Current Models
+应用支持：
 
-Current built-in models:
-- Human keypoints: `MoveNet Lightning` (`movenet_singlepose_lightning_f16.tflite`)
-- Person segmentation: `DeepLabV3` person-class path (`deeplabv3_person.tflite`)
+- 选择后端：`CPU`、`GPU`、`NPU / NNAPI`
+- 选择任务预设
+- 选择单张图片或整个图片文件夹
+- 对单张图片或批量图片运行推理
+- 在界面中查看渲染后的结果图
+- 记录分阶段耗时：
+  - 预处理
+  - 推理
+  - 后处理
+  - 结果叠加渲染
+  - 总耗时
+- 导出批量测试 CSV
+- 为每张输入图保存渲染结果
+- 在导出结果中记录设备和 SoC 元数据
 
-Notes:
-- The keypoint path is real TensorFlow Lite inference.
-- The segmentation path is real TensorFlow Lite inference, but the current model is a generic person-class segmentation model rather than a high-quality portrait matting model.
-- A MediaPipe selfie segmentation asset was explored earlier, but pure TFLite compatibility was prioritized for stable benchmarking.
+## 当前模型
 
-## Backend Paths
+当前内置模型：
 
-This project uses `TensorFlow Lite` as the inference runtime.
+- 人体关键点：`MoveNet Lightning`，文件名为 `movenet_singlepose_lightning_f16.tflite`
+- 人体分割：`DeepLabV3` person-class 路径，文件名为 `deeplabv3_person.tflite`
 
-Current backend mapping:
-- `CPU`: standard TFLite interpreter
-- `GPU`: TFLite GPU delegate
-- `NPU / NNAPI`: TFLite NNAPI path
+说明：
 
-Important:
-- `NNAPI` does not guarantee real NPU execution. Depending on device driver support and model op coverage, Android may partially accelerate or silently fall back to CPU.
-- GPU compatibility can vary by vendor, driver, and Android version.
+- 关键点路径是真实的 TensorFlow Lite 推理。
+- 分割路径是真实的 TensorFlow Lite 推理，但当前模型是通用 person-class segmentation 模型，不是高质量 portrait matting 模型。
+- 之前尝试过 MediaPipe selfie segmentation 资产，但为了稳定 benchmark，当前优先选择纯 TFLite 兼容路径。
 
-## Tech Stack
+## 后端路径
+
+当前分支使用 `TensorFlow Lite` 作为推理运行时。
+
+后端映射：
+
+- `CPU`：标准 TFLite interpreter
+- `GPU`：TFLite GPU delegate
+- `NPU / NNAPI`：TFLite NNAPI 路径
+
+注意：
+
+- `NNAPI` 不保证一定是真正的 NPU 执行。根据设备驱动支持和模型算子覆盖情况，Android 可能会部分加速，也可能静默回退到 CPU。
+- GPU 兼容性会受芯片厂商、驱动和 Android 版本影响。
+
+## 技术栈
 
 - Android
 - Kotlin
@@ -61,101 +67,104 @@ Important:
 - TFLite GPU delegate
 - NNAPI via TFLite
 
-## Requirements
+## 环境要求
 
 - Android `minSdk 28`
-- Android Studio or command-line Android SDK setup
+- Android Studio 或命令行 Android SDK 环境
 - JDK 17
 - Gradle 8.7
 
-## Build
+## 构建
 
-From the project root:
+在 SocTest 仓库根目录执行：
 
 ```bash
 ./gradlew :app:assembleDebug
 ```
 
-Debug APK output:
+Debug APK 输出路径：
 
 ```text
 app/build/outputs/apk/debug/app-debug.apk
 ```
 
-## Install On Device
+## 安装到设备
 
-With `adb`:
+使用 `adb`：
 
 ```bash
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-Or transfer the APK manually and install it from the device.
+也可以手动把 APK 传到设备上安装。
 
-## How To Use
+## 使用方式
 
-1. Open the app.
-2. Select a backend:
+1. 打开应用。
+2. 选择后端：
    - `CPU`
    - `GPU`
    - `NPU / NNAPI`
-3. Select a task preset:
+3. 选择任务预设：
    - `Human Keypoints`
    - `Human Segmentation`
    - `Point Cloud CPU`
-4. Select either:
-   - a single image
-   - an image folder
-5. Press `Run Benchmark`.
+4. 选择输入：
+   - 单张图片
+   - 图片文件夹
+5. 点击 `Run Benchmark`。
 
-After a run:
-- the first result image is shown in the UI
-- all batch result images are saved automatically
-- the CSV is exported automatically
-- runtime information and batch statistics are shown in the app
+运行结束后：
 
-## Output Files
+- 界面会展示第一张结果图
+- 批量结果图会自动保存
+- CSV 会自动导出
+- 应用内会展示运行信息和批量统计结果
 
-Each batch creates one folder under the app's external files directory.
+## 输出文件
 
-The folder name includes:
-- task
-- backend
-- timestamp
+每次批量测试会在应用 external files 目录下创建一个结果文件夹。
 
-Example:
+文件夹名称包含：
+
+- 任务
+- 后端
+- 时间戳
+
+示例：
 
 ```text
 human_keypoints_gpu_20260409_123456/
 ```
 
-Inside that folder you will find:
-- rendered images for each input
-- one CSV file with timing and device metadata
+结果文件夹中包含：
 
-Rendered image naming:
+- 每张输入图对应的渲染结果图
+- 一个包含耗时和设备元数据的 CSV 文件
+
+渲染图命名：
 
 ```text
 original_name_rendered.png
 ```
 
-CSV naming:
+CSV 命名：
 
 ```text
 human_keypoints_gpu_20260409_123456.csv
 ```
 
-Typical Android device path:
+典型 Android 设备路径：
 
 ```text
 /storage/emulated/0/Android/data/com.rockenmini.socbenchmark/files/renders/<batch-folder>/
 ```
 
-## CSV Contents
+## CSV 内容
 
-The exported CSV includes:
+导出的 CSV 包含：
 
-1. device metadata
+1. 设备元数据
    - manufacturer
    - brand
    - model
@@ -168,13 +177,13 @@ The exported CSV includes:
    - SoC manufacturer
    - SoC model
 
-2. benchmark metadata
+2. benchmark 元数据
    - task
    - backend
    - input mode
    - source count
 
-3. per-image results
+3. 单图结果
    - file name
    - resolution
    - total time
@@ -183,74 +192,66 @@ The exported CSV includes:
    - postprocess time
    - overlay render time
 
-4. summary rows at the end
+4. 末尾统计行
    - `avg`
    - `max`
    - `min`
 
-These summary rows are provided for:
+统计行会分别统计：
+
 - total
 - preprocess
 - inference
 - postprocess
 - overlay render
 
-## Timing Interpretation
+## 耗时解释
 
-The app splits timing into separate stages:
+应用会把耗时拆成多个阶段：
 
-- `Preprocess`
-  Resize / tensor packing / input preparation.
+- `Preprocess`：resize、tensor packing、输入准备。
+- `Inference`：纯 TFLite interpreter 执行耗时。
+- `Postprocess`：输出 tensor 解码到绘制前结果。
+- `Overlay Render`：把 mask、关键点和标签绘制到可显示 bitmap 的耗时。
+- `Total`：benchmark pipeline 内预处理、推理、后处理的端到端耗时。
 
-- `Inference`
-  Raw TFLite interpreter execution only.
+`Overlay Render` 单独统计，方便区分模型推理慢还是可视化绘制慢。
 
-- `Postprocess`
-  Output tensor decoding before drawing.
+## 当前限制
 
-- `Overlay Render`
-  Time spent drawing masks, keypoints, and labels onto a displayable bitmap.
+- `NNAPI` 可能根据设备情况回退到 CPU。
+- 当前分割模型不是针对人像边界优化的高质量模型。
+- 应用当前聚焦图片 benchmark。
+- 点云处理仍是 preview / placeholder，还不是完整的生产级点云 benchmark。
 
-- `Total`
-  End-to-end time across preprocess, inference, and postprocess inside the benchmark pipeline.
+## 建议测试流程
 
-Note:
-- Overlay rendering is tracked separately so you can tell whether slow results come from the model itself or from visualization work.
+对每台目标设备：
 
-## Current Limitations
-
-- `NNAPI` may fall back to CPU depending on the device.
-- The current segmentation model is not optimized for portrait-quality boundaries.
-- The app is focused on image-based benchmarking for now.
-- Point cloud processing is still a preview / placeholder path rather than a full production point-cloud benchmark.
-
-## Suggested Workflow For SoC Evaluation
-
-For each target device:
-
-1. Use the same test image folder.
-2. Run:
+1. 使用同一批测试图片。
+2. 分别运行：
    - keypoints on `CPU`
    - keypoints on `GPU`
    - keypoints on `NNAPI`
    - segmentation on `CPU`
    - segmentation on `GPU`
    - segmentation on `NNAPI`
-3. Export and collect the batch folders.
-4. Compare:
-   - average inference time
-   - worst-case time
-   - preprocess overhead
-   - overlay cost
-   - whether GPU / NNAPI actually improve latency
+3. 收集导出的 batch 文件夹。
+4. 对比：
+   - 平均推理耗时
+   - 最慢单张耗时
+   - 预处理开销
+   - 叠加渲染开销
+   - GPU / NNAPI 是否真的改善延迟
 
-## Repository Status
+## 仓库状态
 
-This repository is an actively evolving benchmark tool intended for practical hardware evaluation, not yet a polished release product.
+这个仓库仍处于快速演进阶段，目标是做实际硬件评估工具，还不是正式产品版本。
 
-Planned next steps may include:
-- better portrait segmentation models
-- more robust NNAPI diagnostics
-- warmup / repeat count controls
-- richer point cloud benchmarks
-- improved reporting and result aggregation
+后续可能继续补充：
+
+- 更好的人像分割模型
+- 更可靠的 NNAPI 诊断信息
+- warmup / repeat count 控制
+- 更完整的点云 benchmark
+- 更完善的报告和结果聚合工具
