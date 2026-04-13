@@ -249,9 +249,9 @@ class SelfieSegmentationDetector(private val context: Context) : Closeable {
     }
 
     companion object {
-        // The current segmentation path uses a plain TFLite DeepLabV3 asset because it runs on the
-        // stock interpreter without MediaPipe custom ops.
-        private const val MODEL_ASSET_NAME = "models/deeplabv3_person.tflite"
+        // This branch now uses the ONNX-exported MediaPipe selfie segmentation network converted
+        // to a plain TFLite model so it stays runnable on stock TFLite backends.
+        private const val MODEL_ASSET_NAME = "models/mediapipe_selfie_segmentation_float32.tflite"
         private const val PERSON_CLASS_INDEX = 15
     }
 }

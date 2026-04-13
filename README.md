@@ -35,13 +35,13 @@
 当前内置模型：
 
 - 人体关键点：`MoveNet Lightning`，文件名为 `movenet_singlepose_lightning_f16.tflite`
-- 人体分割：`DeepLabV3` person-class 路径，文件名为 `deeplabv3_person.tflite`
+- 人体分割：`MediaPipe Selfie Segmentation` 的 ONNX 资产转换版，文件名为 `mediapipe_selfie_segmentation_float32.tflite`
 
 说明：
 
 - 关键点路径是真实的 TensorFlow Lite 推理。
-- 分割路径是真实的 TensorFlow Lite 推理，但当前模型是通用 person-class segmentation 模型，不是高质量 portrait matting 模型。
-- 之前尝试过 MediaPipe selfie segmentation 资产，但为了稳定 benchmark，当前优先选择纯 TFLite 兼容路径。
+- 分割路径是真实的 TensorFlow Lite 推理，模型来源与 `ncnn` / `onnx` 分支保持一致，只是这里额外经过 `ONNX -> TFLite` 转换后接入 Android benchmark。
+- 当前接入的是无额外自定义算子的 plain TFLite 文件，可继续用于 `CPU`、`GPU`、`NNAPI` 路径验证。
 
 ## 后端路径
 
