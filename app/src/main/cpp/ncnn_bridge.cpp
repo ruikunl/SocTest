@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "ncnn/cpu.h"
 #include "ncnn/gpu.h"
 #include "ncnn/net.h"
 
@@ -124,12 +125,23 @@ Java_com_rockenmini_socbenchmark_benchmark_NcnnBridge_nativeCreate(
     auto session = std::make_unique<NcnnSession>();
     session->use_vulkan = backend == BACKEND_GPU && ncnn::get_gpu_count() > 0;
 
-    session->net.opt.num_threads = std::max(1, static_cast<int>(threads));
+    const int num_threads = session->use_vulkan ? std::max(1, static_cast<int>(threads)) : 1;
+    session->net.opt.num_threads = num_threads;
+    ncnn::set_omp_num_threads(num_threads);
+    ncnn::set_omp_dynamic(0);
+    ncnn::set_kmp_blocktime(0);
     session->net.opt.use_vulkan_compute = session->use_vulkan;
-    session->net.opt.use_packing_layout = session->use_vulkan;
-    session->net.opt.use_fp16_packed = session->use_vulkan;
-    session->net.opt.use_fp16_storage = session->use_vulkan;
+    // Keep the Vulkan path numerically conservative for pose. The more aggressive
+    // GPU packing / fp16 paths were fast but produced visibly wrong keypoints.
+    session->net.opt.use_packing_layout = false;
+    session->net.opt.use_fp16_packed = false;
+    session->net.opt.use_fp16_storage = false;
     session->net.opt.use_fp16_arithmetic = false;
+    session->net.opt.use_fp16_uniform = false;
+    session->net.opt.use_winograd_convolution = false;
+    session->net.opt.use_sgemm_convolution = false;
+    session->net.opt.use_subgroup_ops = false;
+    session->net.opt.use_shader_local_memory = false;
 
     if (backend == BACKEND_NNAPI) {
         session->net.opt.use_vulkan_compute = false;

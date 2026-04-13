@@ -3,6 +3,7 @@
 
     <application
         android:allowBackup="true"
+        android:allowNativeHeapPointerTagging="false"
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.SocBenchmark">
@@ -18,4 +19,3 @@
     </application>
 
 </manifest>
-

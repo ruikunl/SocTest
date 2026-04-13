@@ -42,7 +42,7 @@ class RtmposeNcnnPoseDetector(private val context: Context) : Closeable {
                         backend = backend,
                         warmupRuns = 0,
                         measuredRuns = 1,
-                        threads = 4
+                        threads = if (backend == ComputeBackend.GPU) 4 else 1
                     )
                 )
             }
