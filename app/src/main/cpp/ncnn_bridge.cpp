@@ -126,7 +126,8 @@ Java_com_rockenmini_socbenchmark_benchmark_NcnnBridge_nativeCreate(
 
     session->net.opt.num_threads = std::max(1, static_cast<int>(threads));
     session->net.opt.use_vulkan_compute = session->use_vulkan;
-    session->net.opt.use_fp16_packed = true;
+    session->net.opt.use_packing_layout = session->use_vulkan;
+    session->net.opt.use_fp16_packed = session->use_vulkan;
     session->net.opt.use_fp16_storage = session->use_vulkan;
     session->net.opt.use_fp16_arithmetic = false;
 
