@@ -2,12 +2,12 @@
 
 `SocTest` 是一个 Android 端 SoC benchmark 应用，用来快速评估平板或手机芯片是否能支撑按摩机器人项目需要的离线视觉任务。
 
-当前 `onnx` 分支重点验证：
+当前 `ncnn` 分支重点验证：
 
 - 人体关键点检测
 - 人体分割
 - 不同 SoC 之间的耗时对比
-- Android 上 ONNX Runtime 的 CPU / NNAPI 路径
+- Android 上 ncnn 的 CPU / Vulkan GPU 路径
 
 这个应用主要用于在 Qualcomm、MediaTek Dimensity、MediaTek G 系列等平台上做真实设备测试。
 
@@ -34,46 +34,50 @@
 
 当前分支内置模型：
 
-- 人体关键点：`RTMPose-t` ONNX，文件名为 `rtmpose_t_body7_256x192.onnx`
-- 人体分割：`MediaPipe Selfie Segmentation` ONNX
-  - `mediapipe_selfie_segmentation.onnx`
-  - `mediapipe_selfie.data`
+- 人体关键点：`RTMPose-t`，从 `onnx` 分支的 `rtmpose_t_body7_256x192.onnx` 转换为 ncnn：
+  - `models/ncnn/rtmpose_t_body7_256x192.param`
+  - `models/ncnn/rtmpose_t_body7_256x192.bin`
+- 人体分割：`MediaPipe Selfie Segmentation`，从 `onnx` 分支的 `mediapipe_selfie_segmentation.onnx` + `mediapipe_selfie.data` 合并后转换为 ncnn：
+  - `models/ncnn/mediapipe_selfie_segmentation.param`
+  - `models/ncnn/mediapipe_selfie_segmentation.bin`
 
 说明：
 
-- 关键点路径是真实的 ONNX Runtime 推理。
+- 关键点路径是真实的 ncnn 推理。
 - 当前关键点路径是偏 benchmark 的 top-down 简化方案：先按模型比例对输入图做中心裁剪，再 resize 到模型输入尺寸。它适合当前 SoC 验证阶段中“人物通常居中”的测试场景，但还不是最终量产算法 pipeline。
-- 分割路径是真实的 ONNX Runtime 推理，使用轻量级 selfie segmentation 模型。
-- 分割 ONNX 模型依赖外部 `.data` 文件，所以应用会先把 ONNX 和 `.data` 文件都释放到本地存储，再创建 ONNX Runtime session。
+- 分割路径是真实的 ncnn 推理，使用轻量级 selfie segmentation 模型。
+- 模型来自 `onnx` 分支同一套网络，转换时使用 ncnn 官方 `onnx2ncnn` 工具。
 
 ## 后端路径
 
-当前分支使用 `ONNX Runtime` 作为推理运行时。
+当前分支使用 `ncnn` 作为推理运行时。
 
 后端映射：
 
-- `CPU`：ONNX Runtime + `XNNPACK`
-- `GPU`：界面保留这个选项，方便和其他分支保持相同测试流程；但当前使用的 baseline `onnxruntime-android` 包不包含通用 Android GPU execution provider，所以目前该路径会回退到 `XNNPACK CPU`
-- `NPU / NNAPI`：请求 ONNX Runtime 的 `NNAPI` execution provider
+- `CPU`：ncnn CPU path
+- `GPU`：ncnn Vulkan GPU path；如果设备没有可用 Vulkan GPU，则回退到 CPU
+- `NPU / NNAPI`：ncnn 当前构建不提供 NNAPI path，为保持 UI 流程一致会回退到 CPU
 
 注意：
 
-- `NNAPI` 不保证一定是真正的 NPU 执行。根据设备驱动、图切分和算子覆盖情况，Android 可能会部分加速，也可能静默回退到 CPU。
-- 当前 ORT baseline 更适合验证 `CPU vs NNAPI`，不适合作为通用 Android GPU benchmark 路线。
+- `GPU` 是否可用取决于设备 Vulkan 支持和驱动稳定性。
+- `NPU / NNAPI` 在这个 ncnn 分支只是对照入口，不代表真实 NPU 执行。
 
 ## 技术栈
 
 - Android
 - Kotlin
 - Jetpack Compose
-- ONNX Runtime Android
-- XNNPACK via ONNX Runtime
-- NNAPI via ONNX Runtime
+- ncnn
+- C++ / JNI
+- Vulkan via ncnn
 
 ## 环境要求
 
 - Android `minSdk 28`
 - Android Studio 或命令行 Android SDK 环境
+- Android NDK
+- CMake
 - JDK 17
 - Gradle 8.7
 
@@ -213,7 +217,7 @@ human_keypoints_gpu_20260409_123456.csv
 应用会把耗时拆成多个阶段：
 
 - `Preprocess`：resize、crop 或 letterbox、tensor packing、输入准备。
-- `Inference`：纯 ONNX Runtime session 执行耗时。
+- `Inference`：纯 ncnn extractor 执行耗时。
 - `Postprocess`：输出 tensor 解码到绘制前结果。
 - `Overlay Render`：把 mask、关键点和标签绘制到可显示 bitmap 的耗时。
 - `Total`：benchmark pipeline 内预处理、推理、后处理的端到端耗时。
@@ -222,9 +226,10 @@ human_keypoints_gpu_20260409_123456.csv
 
 ## 当前限制
 
-- 当前分支的 `GPU` 路径会回退到 CPU，因为 baseline ORT 包不包含通用 Android GPU EP。
-- `NNAPI` 可能根据设备情况回退到 CPU，或只加速图中的一部分。
+- `GPU` 路径依赖设备 Vulkan 支持，不支持时会回退到 CPU。
+- `NPU / NNAPI` 路径当前回退到 CPU。
 - 当前关键点路径假设人物居中，尚未接入人体检测器。
+- RTMPose 由 `onnx2ncnn` 转换时会提示部分 shape/data type warning，需要以端侧实际结果为准。
 - 应用当前聚焦图片 benchmark。
 - 点云处理仍是 preview / placeholder，还不是完整的生产级点云 benchmark。
 
@@ -246,13 +251,14 @@ human_keypoints_gpu_20260409_123456.csv
    - 最慢单张耗时
    - 预处理开销
    - 叠加渲染开销
-   - `NNAPI` 是否真的改善延迟
-   - 当前 `GPU` 选择回退到 CPU 后与 CPU 路径的差异
+   - `GPU` 是否真的改善延迟
+   - `NNAPI` 回退到 CPU 后与 CPU 路径的差异
 
 ## 分支说明
 
 - `main` 和 `TFLite` 分支：TensorFlow Lite 路线，用于 CPU / GPU delegate / NNAPI 实验。
 - `onnx` 分支：ONNX Runtime 路线，更贴近 PyTorch -> ONNX 的算法开发和部署流程。
+- `ncnn` 分支：ncnn 路线，沿用 `onnx` 分支同一套网络转换出的 ncnn 模型，用于 CPU / Vulkan GPU 实验。
 
 ## 仓库状态
 
@@ -260,8 +266,8 @@ human_keypoints_gpu_20260409_123456.csv
 
 后续可能继续补充：
 
-- 更适合 ONNX 路线的人体分割模型
-- 更可靠的 NNAPI 诊断信息
+- 更适合 ncnn 路线的人体分割模型
+- 更可靠的 Vulkan / CPU fallback 诊断信息
 - warmup / repeat count 控制
 - 更完整的点云 benchmark
 - 更完善的报告和结果聚合工具

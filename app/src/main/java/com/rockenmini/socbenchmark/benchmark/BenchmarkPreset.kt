@@ -6,11 +6,11 @@ enum class BenchmarkPreset(
 ) {
     SEGMENTATION(
         title = "Human Segmentation",
-        summary = "Benchmark CPU / GPU(selection) / NNAPI paths for the current ONNX Runtime person segmentation model."
+        summary = "Benchmark CPU / Vulkan GPU / NNAPI-fallback paths for the current ncnn person segmentation model."
     ),
     POSE(
         title = "Human Keypoints",
-        summary = "Benchmark CPU / GPU(selection) / NNAPI paths for the current ONNX Runtime human keypoint model."
+        summary = "Benchmark CPU / Vulkan GPU / NNAPI-fallback paths for the current ncnn human keypoint model."
     ),
     POINT_CLOUD(
         title = "Point Cloud CPU",

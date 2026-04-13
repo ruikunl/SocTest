@@ -1,7 +1,5 @@
 package com.rockenmini.socbenchmark.segmentation
 
-import ai.onnxruntime.OnnxTensor
-import ai.onnxruntime.OrtSession
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -12,18 +10,13 @@ import androidx.core.graphics.scale
 import com.rockenmini.socbenchmark.benchmark.BenchmarkConfig
 import com.rockenmini.socbenchmark.benchmark.BenchmarkPreset
 import com.rockenmini.socbenchmark.benchmark.ComputeBackend
-import com.rockenmini.socbenchmark.benchmark.OnnxRuntimeBackends
-import com.rockenmini.socbenchmark.benchmark.OnnxRuntimeSession
+import com.rockenmini.socbenchmark.benchmark.NcnnSession
 import com.rockenmini.socbenchmark.preview.PreviewMetrics
 import com.rockenmini.socbenchmark.preview.PreviewRenderResult
 import kotlinx.coroutines.ExecutorCoroutineDispatcher
 import kotlinx.coroutines.asCoroutineDispatcher
 import kotlinx.coroutines.withContext
 import java.io.Closeable
-import java.io.File
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.nio.FloatBuffer
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
@@ -34,16 +27,17 @@ import kotlin.system.measureNanoTime
 class SelfieSegmentationDetector(private val context: Context) : Closeable {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val dispatcher: ExecutorCoroutineDispatcher = executor.asCoroutineDispatcher()
-    private val sessions = ConcurrentHashMap<ComputeBackend, OnnxRuntimeSession>()
-    private val extractedModelFile by lazy { prepareModelFiles() }
+    private val sessions = ConcurrentHashMap<ComputeBackend, NcnnSession>()
 
     suspend fun run(source: Bitmap, backend: ComputeBackend, sourceCount: Int): PreviewRenderResult =
         withContext(dispatcher) {
-            // The segmentation model uses an external .data file, so we cache file-backed sessions
-            // per backend after the first extraction to local storage.
+            // Each backend owns one long-lived ncnn session so model load time stays out of the
+            // per-image benchmark numbers.
             val session = sessions.getOrPut(backend) {
-                OnnxRuntimeBackends.createSessionFromFile(
-                    modelFile = extractedModelFile,
+                NcnnSession.create(
+                    context = context,
+                    paramAssetPath = MODEL_PARAM_ASSET_NAME,
+                    binAssetPath = MODEL_BIN_ASSET_NAME,
                     config = BenchmarkConfig(
                         backend = backend,
                         warmupRuns = 0,
@@ -53,9 +47,9 @@ class SelfieSegmentationDetector(private val context: Context) : Closeable {
                 )
             }
 
-            var inputTensor: OnnxTensor? = null
+            var inputTensor: FloatArray? = null
             var maskBitmap: Bitmap? = null
-            var ortResult: OrtSession.Result? = null
+            var maskValues: FloatArray? = null
             var preprocessMs = 0.0
             var inferenceMs = 0.0
             var postprocessMs = 0.0
@@ -66,27 +60,22 @@ class SelfieSegmentationDetector(private val context: Context) : Closeable {
                 // whether latency comes from model execution or from bitmap compositing.
                 val preprocessOutput = PreprocessOutput(source.width, source.height)
                 preprocessMs = measureStepMs {
-                    val tensorBuffer = preprocessBitmap(source, preprocessOutput)
-                    inputTensor = OnnxTensor.createTensor(
-                        OnnxRuntimeBackends.environment,
-                        tensorBuffer,
-                        longArrayOf(1, 3, MODEL_SIZE.toLong(), MODEL_SIZE.toLong())
-                    )
+                    inputTensor = preprocessBitmap(source, preprocessOutput)
                 }
 
                 inferenceMs = measureStepMs {
-                    ortResult = session.session.run(mapOf(INPUT_NAME to checkNotNull(inputTensor)))
+                    maskValues = session.runSegmentation(
+                        input = checkNotNull(inputTensor),
+                        width = MODEL_SIZE,
+                        height = MODEL_SIZE,
+                        channels = 3
+                    )
                 }
 
                 postprocessMs = measureStepMs {
-                    checkNotNull(ortResult).use { result ->
-                        val mask = (result.get(OUTPUT_NAME).orElseThrow() as OnnxTensor).getFloatBuffer()
-                        maskBitmap = buildMaskBitmap(mask, preprocessOutput)
-                    }
+                    maskBitmap = buildMaskBitmap(checkNotNull(maskValues), preprocessOutput)
                 }
             } / 1_000_000.0
-
-            inputTensor?.close()
 
             var overlay: Bitmap? = null
             overlayRenderMs = measureStepMs {
@@ -114,7 +103,7 @@ class SelfieSegmentationDetector(private val context: Context) : Closeable {
             )
         }
 
-    private fun preprocessBitmap(source: Bitmap, metadata: PreprocessOutput): FloatBuffer {
+    private fun preprocessBitmap(source: Bitmap, metadata: PreprocessOutput): FloatArray {
         // The selfie model expects a square 256x256 input. We letterbox instead of center-cropping
         // so the whole subject stays visible in portrait photos and the output mask can be mapped
         // back onto the original frame without losing the top/bottom of the body.
@@ -139,12 +128,10 @@ class SelfieSegmentationDetector(private val context: Context) : Closeable {
         metadata.scaledWidth = scaledWidth
         metadata.scaledHeight = scaledHeight
 
-        val byteBuffer = ByteBuffer.allocateDirect(MODEL_SIZE * MODEL_SIZE * 3 * 4)
-            .order(ByteOrder.nativeOrder())
-        val floatBuffer = byteBuffer.asFloatBuffer()
+        val values = FloatArray(MODEL_SIZE * MODEL_SIZE * 3)
+        var offset = 0
 
-        // Model input is NCHW float32. Qualcomm's packaged ONNX asset reports plain float input,
-        // and using [0, 1] normalized RGB is the safest baseline here.
+        // Keep the same NCHW float32 [0, 1] RGB input layout as the ONNX baseline.
         repeat(3) { channel ->
             for (y in 0 until MODEL_SIZE) {
                 for (x in 0 until MODEL_SIZE) {
@@ -154,24 +141,19 @@ class SelfieSegmentationDetector(private val context: Context) : Closeable {
                         1 -> Color.green(pixel) / 255f
                         else -> Color.blue(pixel) / 255f
                     }
-                    floatBuffer.put(value)
+                    values[offset++] = value
                 }
             }
         }
 
         canvasBitmap.recycle()
-        floatBuffer.rewind()
-        return floatBuffer
+        return values
     }
 
-    private fun buildMaskBitmap(mask: FloatBuffer, metadata: PreprocessOutput): Bitmap {
+    private fun buildMaskBitmap(maskValues: FloatArray, metadata: PreprocessOutput): Bitmap {
         // The model outputs a square mask in letterboxed model space. We first colorize that mask,
         // then remove the padded border area, and finally scale the active region back to the
         // original image resolution.
-        val maskValues = FloatArray(MODEL_SIZE * MODEL_SIZE)
-        mask.rewind()
-        mask.get(maskValues)
-
         val modelMaskBitmap = Bitmap.createBitmap(MODEL_SIZE, MODEL_SIZE, Bitmap.Config.ARGB_8888)
         for (y in 0 until MODEL_SIZE) {
             for (x in 0 until MODEL_SIZE) {
@@ -221,7 +203,7 @@ class SelfieSegmentationDetector(private val context: Context) : Closeable {
             setShadowLayer(8f, 0f, 0f, Color.BLACK)
         }
         canvas.drawText(
-            "Selfie Segmentation ONNX (${backend.displayName})",
+            "Selfie Segmentation ncnn (${backend.displayName})",
             source.width * 0.05f,
             source.height * 0.08f,
             labelPaint
@@ -240,34 +222,9 @@ class SelfieSegmentationDetector(private val context: Context) : Closeable {
         return measureNanoTime(block) / 1_000_000.0
     }
 
-    private fun prepareModelFiles(): File {
-        // ORT resolves the sidecar weight file relative to the .onnx path, so both assets must live
-        // together in the app's local filesystem before session creation.
-        val modelDir = File(context.filesDir, "onnx_models/mediapipe_selfie_segmentation").apply {
-            mkdirs()
-        }
-        val modelFile = File(modelDir, "mediapipe_selfie_segmentation.onnx")
-        val dataFile = File(modelDir, "mediapipe_selfie.data")
-
-        if (!modelFile.exists()) {
-            context.assets.open(MODEL_ASSET_NAME).use { input ->
-                modelFile.outputStream().use { output -> input.copyTo(output) }
-            }
-        }
-        if (!dataFile.exists()) {
-            context.assets.open(MODEL_DATA_ASSET_NAME).use { input ->
-                dataFile.outputStream().use { output -> input.copyTo(output) }
-            }
-        }
-
-        return modelFile
-    }
-
     companion object {
-        private const val MODEL_ASSET_NAME = "models/mediapipe_selfie_segmentation.onnx"
-        private const val MODEL_DATA_ASSET_NAME = "models/mediapipe_selfie.data"
-        private const val INPUT_NAME = "image"
-        private const val OUTPUT_NAME = "mask"
+        private const val MODEL_PARAM_ASSET_NAME = "models/ncnn/mediapipe_selfie_segmentation.param"
+        private const val MODEL_BIN_ASSET_NAME = "models/ncnn/mediapipe_selfie_segmentation.bin"
         private const val MODEL_SIZE = 256
         private const val PERSON_THRESHOLD = 0.35f
     }
