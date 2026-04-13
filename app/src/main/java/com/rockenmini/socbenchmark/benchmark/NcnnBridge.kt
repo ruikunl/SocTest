@@ -46,11 +46,13 @@ class NcnnSession private constructor(
         }
 
         private fun copyAssetIfNeeded(context: Context, assetPath: String, destination: File): File {
-            if (!destination.exists()) {
+            val assetBytes = context.assets.open(assetPath).use { input -> input.readBytes() }
+            val shouldWrite = !destination.exists() ||
+                destination.length() != assetBytes.size.toLong() ||
+                !destination.readBytes().contentEquals(assetBytes)
+            if (shouldWrite) {
                 destination.parentFile?.mkdirs()
-                context.assets.open(assetPath).use { input ->
-                    destination.outputStream().use { output -> input.copyTo(output) }
-                }
+                destination.outputStream().use { output -> output.write(assetBytes) }
             }
             return destination
         }
