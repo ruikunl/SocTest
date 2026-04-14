@@ -244,6 +244,101 @@ human_keypoints_gpu_20260409_123456.csv
    - 叠加渲染开销
    - GPU / NNAPI 是否真的改善延迟
 
+## 当前测试结果汇总
+
+当前已整理 `data/soc_test_result/TFLite` 下的 12 份 CSV 结果，覆盖：
+
+- 3 个平台：`6300`、`680`、`G100-ultra`
+- 2 个任务：`Human Keypoints`、`Human Segmentation`
+- 2 个后端：`CPU`、`GPU`
+- 每组测试样本数：`3031`
+
+整体结论：
+
+- `6300` 在四组对比里全部排名第 1，整体性能最好。
+- `680` 在四组对比里全部排名最后，整体性能最弱。
+- `G100-ultra` 整体居中。
+- 这批 TFLite 测试中，`GPU` 没有明显优于 `CPU`，多数场景下反而更慢；只有 `6300` 的分割任务上，`GPU` 与 `CPU` 基本持平。
+
+### Human Keypoints - CPU
+
+| Rank | Platform | Device | Avg Total (ms) | Inference (ms) | FPS |
+|---|---|---|---:|---:|---:|
+| 1 | `6300` | Lenovo TB335FC | 46.12 | 30.24 | 21.68 |
+| 2 | `G100-ultra` | Redmi 25040RP0AC | 66.74 | 47.74 | 14.98 |
+| 3 | `680` | HONOR NDL2-W09 | 102.55 | 71.87 | 9.75 |
+
+### Human Keypoints - GPU
+
+| Rank | Platform | Device | Avg Total (ms) | Inference (ms) | FPS |
+|---|---|---|---:|---:|---:|
+| 1 | `6300` | Lenovo TB335FC | 51.42 | 35.85 | 19.45 |
+| 2 | `G100-ultra` | Redmi 25040RP0AC | 78.85 | 59.52 | 12.68 |
+| 3 | `680` | HONOR NDL2-W09 | 106.56 | 75.51 | 9.38 |
+
+### Human Segmentation - CPU
+
+| Rank | Platform | Device | Avg Total (ms) | Inference (ms) | FPS |
+|---|---|---|---:|---:|---:|
+| 1 | `6300` | Lenovo TB335FC | 52.95 | 36.60 | 18.89 |
+| 2 | `G100-ultra` | Redmi 25040RP0AC | 62.99 | 43.94 | 15.88 |
+| 3 | `680` | HONOR NDL2-W09 | 69.48 | 34.78 | 14.39 |
+
+### Human Segmentation - GPU
+
+| Rank | Platform | Device | Avg Total (ms) | Inference (ms) | FPS |
+|---|---|---|---:|---:|---:|
+| 1 | `6300` | Lenovo TB335FC | 52.60 | 36.48 | 19.01 |
+| 2 | `G100-ultra` | Redmi 25040RP0AC | 66.73 | 47.82 | 14.98 |
+| 3 | `680` | HONOR NDL2-W09 | 77.05 | 39.82 | 12.98 |
+
+### CPU vs GPU
+
+| Platform | Task | CPU Avg Total (ms) | GPU Avg Total (ms) | GPU vs CPU |
+|---|---|---:|---:|---|
+| `6300` | Human Keypoints | 46.12 | 51.42 | GPU slower by 11.5% |
+| `6300` | Human Segmentation | 52.95 | 52.60 | GPU faster by 0.7% |
+| `680` | Human Keypoints | 102.55 | 106.56 | GPU slower by 3.9% |
+| `680` | Human Segmentation | 69.48 | 77.05 | GPU slower by 10.9% |
+| `G100-ultra` | Human Keypoints | 66.74 | 78.85 | GPU slower by 18.1% |
+| `G100-ultra` | Human Segmentation | 62.99 | 66.73 | GPU slower by 5.9% |
+
+从阶段耗时上看，总耗时差异主要由 `inference_ms` 决定；`Human Segmentation` 的 `overlay_render_ms` 也明显高于 `Human Keypoints`。
+
+## 6300 稳定性分析
+
+`6300` 的 `CPU/GPU` 稳定性可以分成两类来看：`Human Keypoints` 两个后端都比较稳，`Human Segmentation` 中 GPU 更稳，而 CPU 存在明显长尾。
+
+### 波动统计
+
+| Task | Backend | Mean (ms) | Std (ms) | CV | P50 (ms) | P90 (ms) | P99 (ms) | Max (ms) |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| Human Keypoints | CPU | 46.12 | 5.83 | 12.64% | 43.60 | 53.93 | 63.44 | 99.42 |
+| Human Keypoints | GPU | 51.42 | 6.34 | 12.33% | 48.00 | 62.42 | 70.13 | 89.94 |
+| Human Segmentation | CPU | 52.95 | 11.73 | 22.14% | 50.81 | 56.78 | 61.59 | 330.81 |
+| Human Segmentation | GPU | 52.60 | 3.58 | 6.80% | 51.14 | 57.63 | 63.18 | 91.71 |
+
+可以直接据此判断：
+
+- `Human Keypoints` 上，CPU 和 GPU 的波动水平接近，但 CPU 更快。
+- `Human Segmentation` 上，GPU 的耗时分布明显更紧，稳定性优于 CPU。
+- `Human Segmentation CPU` 的平均值并不差，但存在异常长尾样本，导致最大耗时远高于常规区间。
+
+### 长尾占比
+
+| Task | Backend | >1.5x Mean | >2.0x Mean | >Mean+3σ |
+|---|---|---:|---:|---:|
+| Human Keypoints | CPU | 4 (`0.13%`) | 1 (`0.03%`) | 27 (`0.89%`) |
+| Human Keypoints | GPU | 4 (`0.13%`) | 0 | 24 (`0.79%`) |
+| Human Segmentation | CPU | 12 (`0.40%`) | 12 (`0.40%`) | 12 (`0.40%`) |
+| Human Segmentation | GPU | 1 (`0.03%`) | 0 | 23 (`0.76%`) |
+
+补充说明：
+
+- `Human Keypoints` 的慢样本主要和大分辨率图片、`preprocess_ms` 突增有关。
+- `Human Segmentation CPU` 的异常长尾主要来自 `inference_ms` 和 `overlay_render_ms` 在个别样本上的明显抖动。
+- 如果关注端到端时延一致性，`6300` 上的分割任务优先考虑 `GPU`；如果关注纯速度，关键点任务优先选择 `CPU`。
+
 ## 分支说明
 
 - `TFLite` 分支用于 TensorFlow Lite 路线实验。
