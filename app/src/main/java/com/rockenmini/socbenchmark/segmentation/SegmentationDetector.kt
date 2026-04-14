@@ -30,6 +30,7 @@ class SegmentationDetector(private val context: Context) : Closeable {
     private val sessions = ConcurrentHashMap<ComputeBackend, NcnnSession>()
     private val inputPixels = IntArray(MODEL_SIZE * MODEL_SIZE)
     private val inputValues = FloatArray(MODEL_SIZE * MODEL_SIZE * 3)
+    private val maskColors = IntArray(MODEL_SIZE * MODEL_SIZE)
 
     suspend fun run(source: Bitmap, backend: ComputeBackend, sourceCount: Int): PreviewRenderResult =
         withContext(dispatcher) {
@@ -166,9 +167,10 @@ class SegmentationDetector(private val context: Context) : Closeable {
                 } else {
                     Color.TRANSPARENT
                 }
-                modelMaskBitmap.setPixel(x, y, color)
+                maskColors[y * MODEL_SIZE + x] = color
             }
         }
+        modelMaskBitmap.setPixels(maskColors, 0, MODEL_SIZE, 0, 0, MODEL_SIZE, MODEL_SIZE)
 
         val croppedLeft = metadata.offsetX.toInt().coerceAtLeast(0)
         val croppedTop = metadata.offsetY.toInt().coerceAtLeast(0)
