@@ -227,7 +227,7 @@ class SegmentationDetector(private val context: Context) : Closeable {
             setShadowLayer(8f, 0f, 0f, Color.BLACK)
         }
         canvas.drawText(
-            "Selfie Segmentation ONNX (${backend.displayName})",
+            "Selfie Segmentation ONNX Runtime (${backend.displayName})",
             source.width * 0.05f,
             source.height * 0.08f,
             labelPaint

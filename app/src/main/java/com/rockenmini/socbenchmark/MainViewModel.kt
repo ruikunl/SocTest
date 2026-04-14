@@ -140,7 +140,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 latestRecords = emptyList(),
                 exportFilePath = null,
                 renderedImageDirPath = null,
-                message = "Folder loaded. Batch benchmark is ready."
+                message = "Folder loaded. ONNX Runtime batch benchmark is ready."
             )
         }
     }
