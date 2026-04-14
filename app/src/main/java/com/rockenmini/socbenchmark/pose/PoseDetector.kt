@@ -255,7 +255,7 @@ class PoseDetector(private val context: Context) : Closeable {
         }
 
         canvas.drawText(
-            "RTMPose ncnn (${backend.displayName})",
+            "RTMPose ncnn Runtime (${backend.displayName})",
             result.width * 0.05f,
             result.height * 0.08f,
             textPaint

@@ -107,7 +107,7 @@ private fun BenchmarkScreen(
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "选择后端、任务、图片或文件夹，查看结果图、批处理统计和导出结果。",
+            text = "当前为 ncnn 版本。选择后端、任务、图片或文件夹，查看结果图、批处理统计和导出结果。",
             style = MaterialTheme.typography.bodyLarge
         )
 
