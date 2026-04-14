@@ -38,7 +38,7 @@ object TfLiteBackends {
                 TfLiteSession(
                     interpreter = Interpreter(model, options),
                     backend = config.backend,
-                    note = "CPU delegate active with ${config.threads} threads."
+                    note = "TFLite CPU path active with ${config.threads} threads."
                 )
             }
 
@@ -59,7 +59,7 @@ object TfLiteBackends {
                     interpreter = Interpreter(model, options),
                     backend = config.backend,
                     note = buildString {
-                        append("GPU delegate active")
+                        append("TFLite GPU delegate active")
                         if (compatibilityList.isDelegateSupportedOnThisDevice) {
                             append(" with compatibility-tuned conservative options.")
                         } else {
@@ -77,7 +77,7 @@ object TfLiteBackends {
                 TfLiteSession(
                     interpreter = Interpreter(model, options),
                     backend = config.backend,
-                    note = "NNAPI requested. Actual acceleration depends on device driver support."
+                    note = "TFLite NNAPI path requested. Actual acceleration depends on device driver support."
                 )
             }
         }

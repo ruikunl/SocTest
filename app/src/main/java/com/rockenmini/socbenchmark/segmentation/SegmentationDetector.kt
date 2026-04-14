@@ -219,7 +219,7 @@ class SegmentationDetector(private val context: Context) : Closeable {
             textSize = source.width * 0.04f
             setShadowLayer(8f, 0f, 0f, Color.BLACK)
         }
-        canvas.drawText("${BenchmarkModels.segmentation.displayName} (${backend.displayName})", source.width * 0.05f, source.height * 0.08f, labelPaint)
+        canvas.drawText("${BenchmarkModels.segmentation.displayName} (TFLite ${backend.displayName})", source.width * 0.05f, source.height * 0.08f, labelPaint)
         return overlay
     }
 

@@ -256,7 +256,7 @@ class PoseDetector(private val context: Context) : Closeable {
             }
         }
 
-        canvas.drawText("${BenchmarkModels.pose.displayName} Pose (${backend.displayName})", result.width * 0.05f, result.height * 0.08f, textPaint)
+        canvas.drawText("${BenchmarkModels.pose.displayName} Pose (TFLite ${backend.displayName})", result.width * 0.05f, result.height * 0.08f, textPaint)
         return result
     }
 

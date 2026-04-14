@@ -92,5 +92,5 @@ data class MainUiState(
     val latestRecords: List<BatchRecord> = emptyList(),
     val exportFilePath: String? = null,
     val renderedImageDirPath: String? = null,
-    val message: String = "UI preview mode is ready. Choose backend, task, and an image or folder."
+    val message: String = "TFLite benchmark is ready. Choose backend, task, and an image or folder."
 )

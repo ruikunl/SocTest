@@ -107,13 +107,13 @@ private fun BenchmarkScreen(
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "选择后端、任务、图片或文件夹，查看结果图、批处理统计和导出结果。",
+            text = "当前为 TFLite 版本。选择后端、任务、图片或文件夹，查看结果图、批处理统计和导出结果。",
             style = MaterialTheme.typography.bodyLarge
         )
 
         SelectorCard(
             title = "Compute Backend",
-            description = "为后续真实推理预留 CPU / GPU / NPU(NNAPI) 三种运行模式。"
+            description = "当前通过 TFLite Runtime 运行，并提供 CPU / GPU / NPU(NNAPI) 三种模式。"
         ) {
             ComputeBackend.entries.forEach { backend ->
                 FilterChip(
