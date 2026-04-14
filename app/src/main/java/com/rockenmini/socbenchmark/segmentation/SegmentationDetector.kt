@@ -36,6 +36,11 @@ class SegmentationDetector(private val context: Context) : Closeable {
     private val dispatcher: ExecutorCoroutineDispatcher = executor.asCoroutineDispatcher()
     private val sessions = ConcurrentHashMap<ComputeBackend, OnnxRuntimeSession>()
     private val extractedModelFile by lazy { prepareModelFiles() }
+    private val inputPixels = IntArray(MODEL_SIZE * MODEL_SIZE)
+    private val inputByteBuffer: ByteBuffer = ByteBuffer
+        .allocateDirect(MODEL_SIZE * MODEL_SIZE * 3 * 4)
+        .order(ByteOrder.nativeOrder())
+    private val inputFloatBuffer: FloatBuffer = inputByteBuffer.asFloatBuffer()
 
     suspend fun run(source: Bitmap, backend: ComputeBackend, sourceCount: Int): PreviewRenderResult =
         withContext(dispatcher) {
@@ -139,29 +144,28 @@ class SegmentationDetector(private val context: Context) : Closeable {
         metadata.scaledWidth = scaledWidth
         metadata.scaledHeight = scaledHeight
 
-        val byteBuffer = ByteBuffer.allocateDirect(MODEL_SIZE * MODEL_SIZE * 3 * 4)
-            .order(ByteOrder.nativeOrder())
-        val floatBuffer = byteBuffer.asFloatBuffer()
+        canvasBitmap.getPixels(inputPixels, 0, MODEL_SIZE, 0, 0, MODEL_SIZE, MODEL_SIZE)
+        inputFloatBuffer.rewind()
 
         // Model input is NCHW float32. Qualcomm's packaged ONNX asset reports plain float input,
         // and using [0, 1] normalized RGB is the safest baseline here.
         repeat(3) { channel ->
             for (y in 0 until MODEL_SIZE) {
                 for (x in 0 until MODEL_SIZE) {
-                    val pixel = canvasBitmap.getPixel(x, y)
+                    val pixel = inputPixels[y * MODEL_SIZE + x]
                     val value = when (channel) {
                         0 -> Color.red(pixel) / 255f
                         1 -> Color.green(pixel) / 255f
                         else -> Color.blue(pixel) / 255f
                     }
-                    floatBuffer.put(value)
+                    inputFloatBuffer.put(value)
                 }
             }
         }
 
         canvasBitmap.recycle()
-        floatBuffer.rewind()
-        return floatBuffer
+        inputFloatBuffer.rewind()
+        return inputFloatBuffer
     }
 
     private fun buildMaskBitmap(mask: FloatBuffer, metadata: PreprocessOutput): Bitmap {

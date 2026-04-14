@@ -35,6 +35,11 @@ class PoseDetector(private val context: Context) : Closeable {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val dispatcher: ExecutorCoroutineDispatcher = executor.asCoroutineDispatcher()
     private val sessions = ConcurrentHashMap<ComputeBackend, OnnxRuntimeSession>()
+    private val inputPixels = IntArray(MODEL_WIDTH * MODEL_HEIGHT)
+    private val inputByteBuffer: ByteBuffer = ByteBuffer
+        .allocateDirect(MODEL_WIDTH * MODEL_HEIGHT * 3 * 4)
+        .order(ByteOrder.nativeOrder())
+    private val inputFloatBuffer: FloatBuffer = inputByteBuffer.asFloatBuffer()
 
     suspend fun run(source: Bitmap, backend: ComputeBackend, sourceCount: Int): PreviewRenderResult =
         withContext(dispatcher) {
@@ -139,21 +144,20 @@ class PoseDetector(private val context: Context) : Closeable {
         metadata.cropWidth = cropRect.width().toFloat()
         metadata.cropHeight = cropRect.height().toFloat()
 
-        val byteBuffer = ByteBuffer.allocateDirect(MODEL_WIDTH * MODEL_HEIGHT * 3 * 4)
-            .order(ByteOrder.nativeOrder())
-        val floatBuffer = byteBuffer.asFloatBuffer()
+        resizedBitmap.getPixels(inputPixels, 0, MODEL_WIDTH, 0, 0, MODEL_WIDTH, MODEL_HEIGHT)
+        inputFloatBuffer.rewind()
 
         // ORT expects NCHW here, so we pack all red pixels first, then green, then blue.
         repeat(3) { channel ->
             for (y in 0 until MODEL_HEIGHT) {
                 for (x in 0 until MODEL_WIDTH) {
-                    val pixel = resizedBitmap.getPixel(x, y)
+                    val pixel = inputPixels[y * MODEL_WIDTH + x]
                     val normalized = when (channel) {
                         0 -> ((Color.red(pixel) - MEAN[0]) / STD[0]).toFloat()
                         1 -> ((Color.green(pixel) - MEAN[1]) / STD[1]).toFloat()
                         else -> ((Color.blue(pixel) - MEAN[2]) / STD[2]).toFloat()
                     }
-                    floatBuffer.put(normalized)
+                    inputFloatBuffer.put(normalized)
                 }
             }
         }
@@ -167,8 +171,8 @@ class PoseDetector(private val context: Context) : Closeable {
         if (resizedBitmap !== source && resizedBitmap !== croppedBitmap) {
             resizedBitmap.recycle()
         }
-        floatBuffer.rewind()
-        return floatBuffer
+        inputFloatBuffer.rewind()
+        return inputFloatBuffer
     }
 
     private fun decodeKeypoints(
