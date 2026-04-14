@@ -29,6 +29,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -208,6 +209,28 @@ private fun BenchmarkScreen(
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(if (uiState.isBusy) "Processing..." else "Run Benchmark")
+                }
+
+                if (uiState.isBusy) {
+                    if (uiState.progressTotal > 0) {
+                        LinearProgressIndicator(
+                            progress = { uiState.progressCurrent.toFloat() / uiState.progressTotal.toFloat() },
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        Text(
+                            text = uiState.progressLabel
+                                ?: "Processed ${uiState.progressCurrent} / ${uiState.progressTotal}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    } else {
+                        LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
+                        uiState.progressLabel?.let { label ->
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
                 }
 
             }

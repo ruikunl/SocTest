@@ -5,6 +5,7 @@ import android.os.Build
 import android.graphics.Bitmap
 import android.graphics.ImageDecoder
 import android.net.Uri
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
@@ -72,6 +73,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val name = queryDisplayName(uri) ?: "Selected image"
             _uiState.value = _uiState.value.copy(
                 isBusy = false,
+                progressCurrent = 0,
+                progressTotal = 0,
+                progressLabel = null,
                 selectedInputMode = InputSourceMode.IMAGE,
                 sourceSelection = SourceSelection(
                     mode = InputSourceMode.IMAGE,
@@ -79,8 +83,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     detailText = "${bitmap.width} x ${bitmap.height}",
                     sourceCount = 1,
                     previewBitmap = bitmap,
-                    imageUris = listOf(uri),
-                    imageNames = listOf(name)
+                    firstImageUri = uri,
+                    firstImageName = name
                 ),
                 resultBitmap = null,
                 metrics = null,
@@ -94,45 +98,53 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun handleFolderPicked(uri: Uri) {
+        _uiState.value = _uiState.value.copy(
+            isBusy = true,
+            progressCurrent = 0,
+            progressTotal = 0,
+            progressLabel = "Loading folder preview...",
+            message = "Loading folder preview..."
+        )
         viewModelScope.launch(Dispatchers.IO) {
-            val tree = DocumentFile.fromTreeUri(getApplication(), uri)
-            val imageFiles = tree
-                ?.listFiles()
-                ?.filter { file -> file.isFile && (file.type?.startsWith("image/") == true) }
-                ?.sortedBy { it.name ?: "" }
-                .orEmpty()
-
-            if (imageFiles.isEmpty()) {
+            val inspection = inspectImageFolder(uri)
+            if (inspection == null) {
                 _uiState.value = _uiState.value.copy(
                     isBusy = false,
+                    progressCurrent = 0,
+                    progressTotal = 0,
+                    progressLabel = null,
                     message = "The selected folder does not contain readable image files."
                 )
                 return@launch
             }
 
-            val previewFile = imageFiles.first()
-            val bitmap = decodeBitmap(previewFile.uri)
+            val bitmap = decodeBitmap(inspection.previewEntry.uri)
             if (bitmap == null) {
                 _uiState.value = _uiState.value.copy(
                     isBusy = false,
+                    progressCurrent = 0,
+                    progressTotal = 0,
+                    progressLabel = null,
                     message = "The folder was selected, but the preview image could not be opened."
                 )
                 return@launch
             }
 
-            val folderName = tree?.name ?: "Image folder"
-            val previewName = previewFile.name ?: "preview image"
             _uiState.value = _uiState.value.copy(
                 isBusy = false,
+                progressCurrent = 0,
+                progressTotal = 0,
+                progressLabel = null,
                 selectedInputMode = InputSourceMode.FOLDER,
                 sourceSelection = SourceSelection(
                     mode = InputSourceMode.FOLDER,
-                    displayName = folderName,
-                    detailText = "${imageFiles.size} images, preview: $previewName",
-                    sourceCount = imageFiles.size,
+                    displayName = inspection.folderName,
+                    detailText = "${inspection.imageCount} images, preview: ${inspection.previewEntry.name}",
+                    sourceCount = inspection.imageCount,
                     previewBitmap = bitmap,
-                    imageUris = imageFiles.map { it.uri },
-                    imageNames = imageFiles.map { it.name ?: "image" }
+                    firstImageUri = inspection.previewEntry.uri,
+                    firstImageName = inspection.previewEntry.name,
+                    folderUri = uri
                 ),
                 resultBitmap = null,
                 metrics = null,
@@ -155,6 +167,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         _uiState.value = current.copy(
             isBusy = true,
+            progressCurrent = 0,
+            progressTotal = source.sourceCount,
+            progressLabel = if (source.sourceCount > 1) {
+                "Preparing batch run 0 / ${source.sourceCount}"
+            } else {
+                "Preparing single-image run..."
+            },
             exportFilePath = null,
             renderedImageDirPath = null,
             message = "Running ${current.selectedPreset.title} on ${current.selectedBackend.displayName} for ${source.sourceCount} image(s)..."
@@ -162,6 +181,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
+                val imageEntries = when (source.mode) {
+                    InputSourceMode.IMAGE -> listOf(
+                        ImageEntry(
+                            uri = source.firstImageUri,
+                            name = source.firstImageName
+                        )
+                    )
+                    InputSourceMode.FOLDER -> enumerateImageFolder(checkNotNull(source.folderUri))
+                }
+                check(imageEntries.isNotEmpty()) { "No readable image files found for batch execution." }
+
                 val records = mutableListOf<BatchRecord>()
                 var firstRender: PreviewRenderResult? = null
                 val batchTimestamp = buildBatchTimestamp()
@@ -174,13 +204,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 lastBatchNamePrefix = batchNamePrefix
                 lastBatchDirPath = renderDir.absolutePath
 
-                source.imageUris.forEachIndexed { index, uri ->
+                imageEntries.forEachIndexed { index, entry ->
+                    _uiState.value = _uiState.value.copy(
+                        progressCurrent = index,
+                        progressTotal = imageEntries.size,
+                        progressLabel = "Processing ${index + 1} / ${imageEntries.size}: ${entry.name}"
+                    )
+
                     // The first file reuses the preview bitmap already decoded during file selection.
                     // Later files are decoded lazily here so batch mode does not pre-load the whole folder.
                     val bitmap = if (index == 0) {
                         source.previewBitmap
                     } else {
-                        decodeBitmap(uri)
+                        decodeBitmap(entry.uri)
                     } ?: return@forEachIndexed
 
                     // The detector itself returns both the rendered bitmap and the timing breakdown
@@ -200,19 +236,25 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         bitmap = renderResult.bitmap,
                         outputDir = renderDir,
                         fileName = buildRenderedFileName(
-                            originalName = source.imageNames.getOrElse(index) { "image_${index + 1}" }
+                            originalName = entry.name
                         )
                     )
 
                     val metrics = renderResult.metrics
                     records += BatchRecord(
-                        fileName = source.imageNames.getOrElse(index) { "image_${index + 1}" },
+                        fileName = entry.name,
                         resolutionText = metrics.resolutionText,
                         totalMs = metrics.totalMs,
                         preprocessMs = metrics.preprocessMs,
                         inferenceMs = metrics.inferenceMs,
                         postprocessMs = metrics.postprocessMs,
                         overlayRenderMs = metrics.overlayRenderMs
+                    )
+
+                    _uiState.value = _uiState.value.copy(
+                        progressCurrent = records.size,
+                        progressTotal = imageEntries.size,
+                        progressLabel = "Processed ${records.size} / ${imageEntries.size}"
                     )
                 }
 
@@ -231,6 +273,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }.onSuccess { result ->
                 _uiState.value = _uiState.value.copy(
                     isBusy = false,
+                    progressCurrent = 0,
+                    progressTotal = 0,
+                    progressLabel = null,
                     resultBitmap = result.firstRender.bitmap,
                     metrics = result.firstRender.metrics.copy(sourceCount = result.records.size),
                     batchSummary = result.summary,
@@ -246,6 +291,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }.onFailure { error ->
                 _uiState.value = _uiState.value.copy(
                     isBusy = false,
+                    progressCurrent = 0,
+                    progressTotal = 0,
+                    progressLabel = null,
                     message = error.message ?: "Benchmark failed."
                 )
             }
@@ -404,6 +452,67 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }.getOrNull()
     }
 
+    private fun inspectImageFolder(treeUri: Uri): FolderInspection? {
+        val folderName = DocumentFile.fromTreeUri(getApplication(), treeUri)?.name ?: "Image folder"
+        val previewEntry = enumerateImageFolder(treeUri, limit = 1).firstOrNull() ?: return null
+        var imageCount = 0
+        queryImageFolder(treeUri) { _, _, _ ->
+            imageCount += 1
+        }
+        if (imageCount == 0) return null
+
+        return FolderInspection(
+            folderName = folderName,
+            previewEntry = previewEntry,
+            imageCount = imageCount
+        )
+    }
+
+    private fun enumerateImageFolder(treeUri: Uri, limit: Int = Int.MAX_VALUE): List<ImageEntry> {
+        val imageEntries = mutableListOf<ImageEntry>()
+        queryImageFolder(treeUri) { documentUri, displayName, _ ->
+            if (imageEntries.size < limit) {
+                imageEntries += ImageEntry(
+                    uri = documentUri,
+                    name = displayName
+                )
+            }
+        }
+        return imageEntries
+    }
+
+    private fun queryImageFolder(
+        treeUri: Uri,
+        onImage: (documentUri: Uri, displayName: String, index: Int) -> Unit
+    ) {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(
+            treeUri,
+            DocumentsContract.getTreeDocumentId(treeUri)
+        )
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE
+        )
+        val resolver = getApplication<Application>().contentResolver
+        resolver.query(childrenUri, projection, null, null, null)?.use { cursor ->
+            val documentIdColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DOCUMENT_ID)
+            val displayNameColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_DISPLAY_NAME)
+            val mimeTypeColumn = cursor.getColumnIndex(DocumentsContract.Document.COLUMN_MIME_TYPE)
+            var imageIndex = 0
+            while (cursor.moveToNext()) {
+                val mimeType = cursor.getString(mimeTypeColumn) ?: continue
+                if (!mimeType.startsWith("image/")) continue
+                val documentId = cursor.getString(documentIdColumn) ?: continue
+                val displayName = cursor.getString(displayNameColumn)?.takeIf { it.isNotBlank() }
+                    ?: "image_${imageIndex + 1}"
+                val documentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, documentId)
+                onImage(documentUri, displayName, imageIndex)
+                imageIndex += 1
+            }
+        }
+    }
+
     private fun buildBatchTimestamp(): String {
         return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
     }
@@ -490,6 +599,17 @@ private data class BatchExecutionResult(
     val summary: BatchSummary,
     val renderedImageDirPath: String,
     val exportFilePath: String
+)
+
+private data class ImageEntry(
+    val uri: Uri,
+    val name: String
+)
+
+private data class FolderInspection(
+    val folderName: String,
+    val previewEntry: ImageEntry,
+    val imageCount: Int
 )
 
 private fun Double.rounded(scale: Int): Double {

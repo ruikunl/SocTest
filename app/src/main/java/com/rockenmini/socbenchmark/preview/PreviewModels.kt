@@ -75,8 +75,9 @@ data class SourceSelection(
     val detailText: String,
     val sourceCount: Int,
     val previewBitmap: Bitmap,
-    val imageUris: List<Uri>,
-    val imageNames: List<String>
+    val firstImageUri: Uri,
+    val firstImageName: String,
+    val folderUri: Uri? = null
 )
 
 data class MainUiState(
@@ -85,6 +86,9 @@ data class MainUiState(
     val selectedInputMode: InputSourceMode = InputSourceMode.IMAGE,
     val deviceInfo: DeviceInfo,
     val isBusy: Boolean = false,
+    val progressCurrent: Int = 0,
+    val progressTotal: Int = 0,
+    val progressLabel: String? = null,
     val sourceSelection: SourceSelection? = null,
     val resultBitmap: Bitmap? = null,
     val metrics: PreviewMetrics? = null,
