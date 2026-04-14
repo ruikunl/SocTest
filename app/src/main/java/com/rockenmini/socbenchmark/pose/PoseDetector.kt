@@ -28,6 +28,8 @@ class PoseDetector(private val context: Context) : Closeable {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val dispatcher: ExecutorCoroutineDispatcher = executor.asCoroutineDispatcher()
     private val sessions = ConcurrentHashMap<ComputeBackend, NcnnSession>()
+    private val inputPixels = IntArray(MODEL_WIDTH * MODEL_HEIGHT)
+    private val inputValues = FloatArray(MODEL_WIDTH * MODEL_HEIGHT * 3)
 
     suspend fun run(source: Bitmap, backend: ComputeBackend, sourceCount: Int): PreviewRenderResult =
         withContext(dispatcher) {
@@ -132,20 +134,20 @@ class PoseDetector(private val context: Context) : Closeable {
         metadata.cropWidth = cropRect.width().toFloat()
         metadata.cropHeight = cropRect.height().toFloat()
 
-        val values = FloatArray(MODEL_WIDTH * MODEL_HEIGHT * 3)
+        resizedBitmap.getPixels(inputPixels, 0, MODEL_WIDTH, 0, 0, MODEL_WIDTH, MODEL_HEIGHT)
         var offset = 0
 
         // ncnn receives the same NCHW layout as the ONNX baseline: red plane, green plane, blue plane.
         repeat(3) { channel ->
             for (y in 0 until MODEL_HEIGHT) {
                 for (x in 0 until MODEL_WIDTH) {
-                    val pixel = resizedBitmap.getPixel(x, y)
+                    val pixel = inputPixels[y * MODEL_WIDTH + x]
                     val normalized = when (channel) {
                         0 -> ((Color.red(pixel) - MEAN[0]) / STD[0]).toFloat()
                         1 -> ((Color.green(pixel) - MEAN[1]) / STD[1]).toFloat()
                         else -> ((Color.blue(pixel) - MEAN[2]) / STD[2]).toFloat()
                     }
-                    values[offset++] = normalized
+                    inputValues[offset++] = normalized
                 }
             }
         }
@@ -159,7 +161,7 @@ class PoseDetector(private val context: Context) : Closeable {
         if (resizedBitmap !== source && resizedBitmap !== croppedBitmap) {
             resizedBitmap.recycle()
         }
-        return values
+        return inputValues
     }
 
     private fun decodeKeypoints(

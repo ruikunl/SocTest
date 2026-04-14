@@ -28,6 +28,8 @@ class SegmentationDetector(private val context: Context) : Closeable {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val dispatcher: ExecutorCoroutineDispatcher = executor.asCoroutineDispatcher()
     private val sessions = ConcurrentHashMap<ComputeBackend, NcnnSession>()
+    private val inputPixels = IntArray(MODEL_SIZE * MODEL_SIZE)
+    private val inputValues = FloatArray(MODEL_SIZE * MODEL_SIZE * 3)
 
     suspend fun run(source: Bitmap, backend: ComputeBackend, sourceCount: Int): PreviewRenderResult =
         withContext(dispatcher) {
@@ -128,26 +130,26 @@ class SegmentationDetector(private val context: Context) : Closeable {
         metadata.scaledWidth = scaledWidth
         metadata.scaledHeight = scaledHeight
 
-        val values = FloatArray(MODEL_SIZE * MODEL_SIZE * 3)
+        canvasBitmap.getPixels(inputPixels, 0, MODEL_SIZE, 0, 0, MODEL_SIZE, MODEL_SIZE)
         var offset = 0
 
         // Keep the same NCHW float32 [0, 1] RGB input layout as the ONNX baseline.
         repeat(3) { channel ->
             for (y in 0 until MODEL_SIZE) {
                 for (x in 0 until MODEL_SIZE) {
-                    val pixel = canvasBitmap.getPixel(x, y)
+                    val pixel = inputPixels[y * MODEL_SIZE + x]
                     val value = when (channel) {
                         0 -> Color.red(pixel) / 255f
                         1 -> Color.green(pixel) / 255f
                         else -> Color.blue(pixel) / 255f
                     }
-                    values[offset++] = value
+                    inputValues[offset++] = value
                 }
             }
         }
 
         canvasBitmap.recycle()
-        return values
+        return inputValues
     }
 
     private fun buildMaskBitmap(maskValues: FloatArray, metadata: PreprocessOutput): Bitmap {
