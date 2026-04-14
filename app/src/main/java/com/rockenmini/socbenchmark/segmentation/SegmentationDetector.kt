@@ -31,7 +31,7 @@ import kotlin.math.min
 import kotlin.math.round
 import kotlin.system.measureNanoTime
 
-class SelfieSegmentationDetector(private val context: Context) : Closeable {
+class SegmentationDetector(private val context: Context) : Closeable {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val dispatcher: ExecutorCoroutineDispatcher = executor.asCoroutineDispatcher()
     private val sessions = ConcurrentHashMap<ComputeBackend, OnnxRuntimeSession>()
