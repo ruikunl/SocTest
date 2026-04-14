@@ -2,7 +2,9 @@ package com.rockenmini.socbenchmark.benchmark
 
 import android.content.Context
 import org.tensorflow.lite.Interpreter
+import org.tensorflow.lite.gpu.CompatibilityList
 import org.tensorflow.lite.gpu.GpuDelegate
+import org.tensorflow.lite.gpu.GpuDelegateFactory
 import org.tensorflow.lite.support.common.FileUtil
 import java.io.Closeable
 
@@ -41,14 +43,30 @@ object TfLiteBackends {
             }
 
             ComputeBackend.GPU -> {
-                // The GPU delegate is attached directly to the interpreter. Session caching keeps the
-                // delegate alive across repeated runs so benchmark numbers do not include re-init cost.
-                val delegate = GpuDelegate()
+                // We intentionally use a conservative GPU configuration here. RTMPose keypoint
+                // outputs are more sensitive to delegate precision than the current segmentation
+                // model, so we prefer stable results over the most aggressive defaults.
+                val compatibilityList = CompatibilityList()
+                val delegateOptions = compatibilityList.bestOptionsForThisDevice.apply {
+                    setPrecisionLossAllowed(false)
+                    setQuantizedModelsAllowed(false)
+                    setInferencePreference(GpuDelegateFactory.Options.INFERENCE_PREFERENCE_FAST_SINGLE_ANSWER)
+                    setSerializationParams(context.codeCacheDir.absolutePath, modelAssetPath.replace('/', '_'))
+                }
+                val delegate = GpuDelegate(delegateOptions)
                 options.addDelegate(delegate)
                 TfLiteSession(
                     interpreter = Interpreter(model, options),
                     backend = config.backend,
-                    note = "GPU delegate active."
+                    note = buildString {
+                        append("GPU delegate active")
+                        if (compatibilityList.isDelegateSupportedOnThisDevice) {
+                            append(" with compatibility-tuned conservative options.")
+                        } else {
+                            append(" with manually forced delegate options; device compatibility list reported unsupported state.")
+                        }
+                    },
+                    closeables = listOf(delegate, compatibilityList)
                 )
             }
 

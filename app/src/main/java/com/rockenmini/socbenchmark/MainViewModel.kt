@@ -11,7 +11,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.rockenmini.socbenchmark.benchmark.BenchmarkPreset
 import com.rockenmini.socbenchmark.benchmark.ComputeBackend
-import com.rockenmini.socbenchmark.pose.MoveNetPoseDetector
+import com.rockenmini.socbenchmark.pose.PoseDetector
 import com.rockenmini.socbenchmark.preview.BatchRecord
 import com.rockenmini.socbenchmark.preview.BatchSummary
 import com.rockenmini.socbenchmark.preview.DeviceInfo
@@ -21,7 +21,7 @@ import com.rockenmini.socbenchmark.preview.MetricStats
 import com.rockenmini.socbenchmark.preview.PreviewPipeline
 import com.rockenmini.socbenchmark.preview.PreviewRenderResult
 import com.rockenmini.socbenchmark.preview.SourceSelection
-import com.rockenmini.socbenchmark.segmentation.SelfieSegmentationDetector
+import com.rockenmini.socbenchmark.segmentation.SegmentationDetector
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -40,8 +40,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     )
     val uiState: StateFlow<MainUiState> = _uiState.asStateFlow()
-    private val moveNetPoseDetector by lazy { MoveNetPoseDetector(application) }
-    private val selfieSegmentationDetector by lazy { SelfieSegmentationDetector(application) }
+    private val poseDetector by lazy { PoseDetector(application) }
+    private val segmentationDetector by lazy { SegmentationDetector(application) }
     private var lastBatchTimestamp: String? = null
     private var lastBatchNamePrefix: String? = null
     private var lastBatchDirPath: String? = null
@@ -253,8 +253,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
-        moveNetPoseDetector.close()
-        selfieSegmentationDetector.close()
+        poseDetector.close()
+        segmentationDetector.close()
         super.onCleared()
     }
 
@@ -265,8 +265,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sourceCount: Int
     ): PreviewRenderResult {
         return when (preset) {
-            BenchmarkPreset.POSE -> moveNetPoseDetector.run(bitmap, backend, sourceCount)
-            BenchmarkPreset.SEGMENTATION -> selfieSegmentationDetector.run(bitmap, backend, sourceCount)
+            BenchmarkPreset.POSE -> poseDetector.run(bitmap, backend, sourceCount)
+            BenchmarkPreset.SEGMENTATION -> segmentationDetector.run(bitmap, backend, sourceCount)
             BenchmarkPreset.POINT_CLOUD -> PreviewPipeline.render(bitmap, preset, backend, sourceCount)
         }
     }

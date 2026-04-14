@@ -34,7 +34,7 @@
 
 当前内置模型：
 
-- 人体关键点：`MoveNet Lightning`，文件名为 `movenet_singlepose_lightning_f16.tflite`
+- 人体关键点：`RTMPose` 的 TFLite 转换版，文件名为 `rtmpose_t_body7_256x192_float32.tflite`
 - 人体分割：`MediaPipe Selfie Segmentation` 的 ONNX 资产转换版，文件名为 `mediapipe_selfie_segmentation_float32.tflite`
 
 说明：
