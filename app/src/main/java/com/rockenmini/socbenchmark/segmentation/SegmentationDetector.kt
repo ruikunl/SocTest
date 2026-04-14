@@ -32,6 +32,7 @@ class SegmentationDetector(private val context: Context) : Closeable {
     private val dispatcher: ExecutorCoroutineDispatcher = executor.asCoroutineDispatcher()
     private val sessions = ConcurrentHashMap<ComputeBackend, TfLiteSession>()
     private var inputPixels = IntArray(0)
+    private var outputColors = IntArray(0)
 
     suspend fun run(source: Bitmap, backend: ComputeBackend, sourceCount: Int): PreviewRenderResult =
         withContext(dispatcher) {
@@ -172,6 +173,10 @@ class SegmentationDetector(private val context: Context) : Closeable {
         val maskHeight = outputShape[1]
         val maskWidth = outputShape[2]
         val maskBitmap = Bitmap.createBitmap(maskWidth, maskHeight, Bitmap.Config.ARGB_8888)
+        val pixelCount = maskHeight * maskWidth
+        if (outputColors.size < pixelCount) {
+            outputColors = IntArray(pixelCount)
+        }
 
         for (y in 0 until maskHeight) {
             for (x in 0 until maskWidth) {
@@ -189,9 +194,10 @@ class SegmentationDetector(private val context: Context) : Closeable {
                 } else {
                     Color.argb((alpha * 0.35f).toInt(), 30, 41, 59)
                 }
-                maskBitmap.setPixel(x, y, color)
+                outputColors[y * maskWidth + x] = color
             }
         }
+        maskBitmap.setPixels(outputColors, 0, maskWidth, 0, 0, maskWidth, maskHeight)
 
         return maskBitmap
     }
