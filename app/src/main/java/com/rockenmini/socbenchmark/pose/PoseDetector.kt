@@ -33,6 +33,10 @@ class PoseDetector(private val context: Context) : Closeable {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val dispatcher: ExecutorCoroutineDispatcher = executor.asCoroutineDispatcher()
     private val sessions = ConcurrentHashMap<ComputeBackend, TfLiteSession>()
+    private val inputPixels = IntArray(spec.inputWidth * spec.inputHeight)
+    private val inputTensorBuffer: ByteBuffer = ByteBuffer
+        .allocateDirect(spec.inputWidth * spec.inputHeight * 3 * 4)
+        .order(ByteOrder.nativeOrder())
 
     suspend fun run(source: Bitmap, backend: ComputeBackend, sourceCount: Int): PreviewRenderResult =
         withContext(dispatcher) {
@@ -135,18 +139,17 @@ class PoseDetector(private val context: Context) : Closeable {
         metadata.cropWidth = cropRect.width().toFloat()
         metadata.cropHeight = cropRect.height().toFloat()
 
-        val inputTensor = ByteBuffer.allocateDirect(spec.inputWidth * spec.inputHeight * 3 * 4).apply {
-            order(ByteOrder.nativeOrder())
-        }
+        resizedBitmap.getPixels(inputPixels, 0, spec.inputWidth, 0, 0, spec.inputWidth, spec.inputHeight)
+        inputTensorBuffer.rewind()
         for (y in 0 until spec.inputHeight) {
             for (x in 0 until spec.inputWidth) {
-                val pixel = resizedBitmap.getPixel(x, y)
-                inputTensor.putFloat((Color.red(pixel) - spec.meanRgb[0]) / spec.stdRgb[0])
-                inputTensor.putFloat((Color.green(pixel) - spec.meanRgb[1]) / spec.stdRgb[1])
-                inputTensor.putFloat((Color.blue(pixel) - spec.meanRgb[2]) / spec.stdRgb[2])
+                val pixel = inputPixels[y * spec.inputWidth + x]
+                inputTensorBuffer.putFloat((Color.red(pixel) - spec.meanRgb[0]) / spec.stdRgb[0])
+                inputTensorBuffer.putFloat((Color.green(pixel) - spec.meanRgb[1]) / spec.stdRgb[1])
+                inputTensorBuffer.putFloat((Color.blue(pixel) - spec.meanRgb[2]) / spec.stdRgb[2])
             }
         }
-        inputTensor.rewind()
+        inputTensorBuffer.rewind()
 
         if (croppedBitmap !== source && croppedBitmap !== resizedBitmap) {
             croppedBitmap.recycle()
@@ -154,7 +157,7 @@ class PoseDetector(private val context: Context) : Closeable {
         if (resizedBitmap !== source && resizedBitmap !== croppedBitmap) {
             resizedBitmap.recycle()
         }
-        return inputTensor
+        return inputTensorBuffer
     }
 
     private fun flattenSimcc(simcc: Array<FloatArray>): FloatArray {

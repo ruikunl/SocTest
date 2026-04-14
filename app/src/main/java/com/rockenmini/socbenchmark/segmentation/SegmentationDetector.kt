@@ -31,6 +31,7 @@ class SegmentationDetector(private val context: Context) : Closeable {
     private val executor: ExecutorService = Executors.newSingleThreadExecutor()
     private val dispatcher: ExecutorCoroutineDispatcher = executor.asCoroutineDispatcher()
     private val sessions = ConcurrentHashMap<ComputeBackend, TfLiteSession>()
+    private var inputPixels = IntArray(0)
 
     suspend fun run(source: Bitmap, backend: ComputeBackend, sourceCount: Int): PreviewRenderResult =
         withContext(dispatcher) {
@@ -122,10 +123,14 @@ class SegmentationDetector(private val context: Context) : Closeable {
         val bytesPerChannel = if (dataType == DataType.FLOAT32) 4 else 1
         val buffer = ByteBuffer.allocateDirect(bitmap.width * bitmap.height * 3 * bytesPerChannel)
         buffer.order(ByteOrder.nativeOrder())
+        if (inputPixels.size < bitmap.width * bitmap.height) {
+            inputPixels = IntArray(bitmap.width * bitmap.height)
+        }
+        bitmap.getPixels(inputPixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
 
         for (y in 0 until bitmap.height) {
             for (x in 0 until bitmap.width) {
-                val pixel = bitmap.getPixel(x, y)
+                val pixel = inputPixels[y * bitmap.width + x]
                 val r = Color.red(pixel)
                 val g = Color.green(pixel)
                 val b = Color.blue(pixel)
