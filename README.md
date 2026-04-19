@@ -2,14 +2,49 @@
 
 `SocTest` 是一个 Android 端 SoC benchmark 应用，用来快速评估平板或手机芯片是否能支撑按摩机器人项目需要的离线视觉任务。
 
-当前 `main` 分支重点验证：
+截至 `2026-04-20`，`main` 分支承担两个角色：
 
-- 人体关键点检测
-- 人体分割
-- 不同 SoC 之间的耗时对比
-- Android 上 TensorFlow Lite 的 CPU / GPU / NNAPI 路径
+- 作为默认开发分支，沉淀 SoC benchmark 的路线结论。
+- 保留当前已经跑通的 Android benchmark 基线能力，方便继续对照和迭代。
+
+本仓库已经实际拉起并对照过三条路线：
+
+- `TFLite`
+- `onnx`
+- `ncnn`
 
 这个应用主要用于在 Qualcomm、MediaTek Dimensity、MediaTek G 系列等平台上做真实设备测试。
+
+## 测试结果总结与路线结论
+
+截至 `2026-04-20`，已检查 `main` / `TFLite` / `onnx` / `ncnn` 分支下的 Markdown 文档情况：
+
+- 三条实验分支当前都只有根目录 `README.md`，没有额外独立的测试结果 `.md` 文档。
+- 现有总结主要沉淀在各分支 `README.md` 中，内容以“路线说明、运行时能力、限制和适用场景”为主。
+
+基于当前分支文档和对应实现，结论整理如下：
+
+- `TFLite` 路线：
+  - Android 侧 `CPU / GPU delegate / NNAPI` 路径完整，适合快速拉通 benchmark。
+  - 但和算法侧更自然的 `PyTorch -> ONNX` 导出链路不一致，后续模型迭代需要额外做格式转换和结果对齐。
+- `ncnn` 路线：
+  - `CPU / Vulkan GPU` 路径轻量，端侧性能探索价值高。
+  - 但当前分支里的 `NNAPI` 入口实际回退到 `CPU`，而且需要维护 `C++ / JNI / Vulkan` 以及额外模型转换链路，长期开发成本更高。
+- `ONNX Runtime` 路线：
+  - 最贴近算法侧 `PyTorch -> ONNX` 的主流程，模型交付和联调成本最低。
+  - 当前分支已经明确支持 `CPU + XNNPACK` 与 `NNAPI` 请求路径，适合继续做 Android 端真实 SoC 对比。
+  - 虽然 baseline `GPU` 路径目前会回退到 `CPU`，但这不影响它作为当前主开发路线的可维护性和工程一致性。
+
+最终结论：
+
+- 后续默认开发路线选择 `ONNX`。
+- `main` 分支 README 以此作为项目结论，对后续开发给出统一方向。
+- `TFLite` 和 `ncnn` 分支保留为对照实验与历史参考，不再作为默认主线推进。
+
+说明：
+
+- 当前 `main` 分支中的代码基线仍保留现有 Android benchmark 实现。
+- 后续如继续往 `main` 收敛功能，应优先参考 `onnx` 分支的模型格式、运行时选择和工程组织方式。
 
 ## 功能
 
@@ -45,7 +80,7 @@
 
 ## 后端路径
 
-当前分支使用 `TensorFlow Lite` 作为推理运行时。
+当前 `main` 分支保留的代码基线使用 `TensorFlow Lite` 作为推理运行时。
 
 后端映射：
 
@@ -243,6 +278,13 @@ human_keypoints_gpu_20260409_123456.csv
    - 预处理开销
    - 叠加渲染开销
    - GPU / NNAPI 是否真的改善延迟
+
+## 分支说明
+
+- `main` 分支是后续默认开发分支；路线结论已经确定为 `ONNX`，后续功能收敛应优先参考 `onnx` 分支。
+- `TFLite` 分支用于 TensorFlow Lite 路线实验与历史对照。
+- `onnx` 分支用于 ONNX Runtime 路线实验，也是当前最终选定的主路线参考实现。
+- `ncnn` 分支用于 ncnn 路线实验，主要保留 CPU / Vulkan GPU 对照结果和实现参考。
 
 ## 仓库状态
 
